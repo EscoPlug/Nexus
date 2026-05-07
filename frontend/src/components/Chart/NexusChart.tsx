@@ -570,9 +570,12 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     });
 
     mainChartRef.current = chart;
+    let scrollRaf = 0;
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
       syncTimeScale(chart);
-      setScrollVersion(n => n + 1);
+      // Throttle SVG position updates to one React render per animation frame
+      cancelAnimationFrame(scrollRaf);
+      scrollRaf = requestAnimationFrame(() => setScrollVersion(n => n + 1));
     });
 
     // chart.subscribeClick is the only reliable click API — the canvas blocks DOM bubbling
@@ -628,6 +631,7 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     resizeObserverRef.current.observe(containerRef.current);
 
     return () => {
+      cancelAnimationFrame(scrollRaf);
       resizeObserverRef.current?.disconnect();
       chart.remove();
       mainChartRef.current = null;
@@ -814,8 +818,8 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}>
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        <div ref={containerRef} style={{ width: '100%', height: '100%', cursor: drawingTool !== 'none' ? 'crosshair' : 'default' }} />
-        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}>
+        <div ref={containerRef} style={{ position: 'absolute', inset: 0, cursor: drawingTool !== 'none' ? 'crosshair' : 'default' }} />
+        <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
           {renderedDrawings}
           {previewEl}
         </svg>
