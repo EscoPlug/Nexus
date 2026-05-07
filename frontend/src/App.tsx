@@ -37,6 +37,8 @@ function AppInner() {
   const [leftTab, setLeftTab] = useState<LeftTab>('watchlist');
   const [rightTab, setRightTab] = useState<RightTab>('level2');
   const [mobileView, setMobileView] = useState<MobileView>('chart');
+  const [clearDrawings, setClearDrawings] = useState(0);
+  const [undoDrawing, setUndoDrawing] = useState(0);
 
   const { bars, quote, loading, dataSource } = useChartData(symbol, timeframe);
   const watchlistSymbols = useMemo(() => watchlist.map(w => w.symbol), [watchlist]);
@@ -85,7 +87,7 @@ function AppInner() {
           </div>
         </div>
       )}
-      <NexusChart bars={bars} chartType={chartType} indicators={indicators} drawingTool={drawingTool} />
+      <NexusChart bars={bars} chartType={chartType} indicators={indicators} drawingTool={drawingTool} clearDrawings={clearDrawings} undoDrawing={undoDrawing} />
     </div>
   );
 
@@ -106,7 +108,7 @@ function AppInner() {
       {/* Chart view */}
       <div className={`flex-1 min-h-0 flex-col ${mobileView === 'chart' ? 'flex' : 'hidden'}`}>
         <div className="flex flex-1 min-h-0">
-          <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} />
+          <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />
           {chartArea}
         </div>
         {simMode && <OrderPanel symbol={symbol} currentPrice={currentPrice} />}
@@ -264,7 +266,7 @@ function AppInner() {
       {/* Center: chart + order panel */}
       <div className="flex flex-1 min-w-0 flex-col">
         <div className="flex flex-1 min-h-0">
-          <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} />
+          <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />
           {chartArea}
           {showNews && !simMode && <NewsPanel symbol={symbol} />}
         </div>
