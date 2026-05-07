@@ -10,6 +10,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import type { OHLCVBar, ActiveIndicator, ChartType, DrawingToolType } from '../../types';
+import type { LiveTick } from '../../hooks/useLiveTick';
 import {
   sma, ema, wma, dema, tema, hullMA, vwap as calcVwap, alma,
   bollingerBands, keltnerChannels, donchianChannels,
@@ -51,6 +52,7 @@ interface Props {
   drawingTool: DrawingToolType;
   clearDrawings?: number;
   undoDrawing?: number;
+  liveTick?: LiveTick | null;
   onCrosshairMove?: (data: { price: number | null; time: number | null }) => void;
 }
 
@@ -72,7 +74,7 @@ function toLineData(bars: OHLCVBar[], values: (number | null)[]) {
     .filter(d => d.value !== null) as { time: UTCTimestamp; value: number }[];
 }
 
-export default function NexusChart({ bars, chartType, indicators, drawingTool, clearDrawings, undoDrawing, onCrosshairMove }: Props) {
+export default function NexusChart({ bars, chartType, indicators, drawingTool, clearDrawings, undoDrawing, liveTick, onCrosshairMove }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainChartRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | ISeriesApi<'Bar'> | null>(null);
@@ -684,6 +686,25 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     buildOverlayIndicators(mainChartRef.current, activeBars);
     buildSubChartIndicators(activeBars);
   }, [indicators]);
+
+  // Push live tick into chart series — TradingView-style real-time candle update
+  useEffect(() => {
+    if (!liveTick || !mainSeriesRef.current) return;
+    try {
+      const s = mainSeriesRef.current;
+      if (chartType === 'line' || chartType === 'area') {
+        (s as ISeriesApi<'Line'>).update({ time: liveTick.time as UTCTimestamp, value: liveTick.close });
+      } else {
+        (s as ISeriesApi<'Candlestick'>).update({
+          time: liveTick.time as UTCTimestamp,
+          open: liveTick.open,
+          high: liveTick.high,
+          low: liveTick.low,
+          close: liveTick.close,
+        });
+      }
+    } catch {}
+  }, [liveTick, chartType]);
 
   // Keep ref in sync with prop (read in event handler to avoid stale closure)
   useEffect(() => {

@@ -16,6 +16,7 @@ import RiskManager from './components/Trading/RiskManager';
 import { TradingProvider } from './context/TradingContext';
 import { useChartData } from './hooks/useChartData';
 import { useLivePrice } from './hooks/useLivePrice';
+import { useLiveTick } from './hooks/useLiveTick';
 import type { ChartType, Timeframe, ActiveIndicator, DrawingToolType, WatchlistItem } from './types';
 import { Activity, BarChart2, Star, Search, ShoppingCart, PieChart } from 'lucide-react';
 
@@ -44,7 +45,9 @@ function AppInner() {
   const watchlistSymbols = useMemo(() => watchlist.map(w => w.symbol), [watchlist]);
   const livePrices = useLivePrice(watchlistSymbols);
   const connected = Object.keys(livePrices).length > 0;
-  const currentPrice = quote?.price ?? (bars.length > 0 ? bars[bars.length - 1].close : 0);
+  const lastBar = bars.length > 0 ? bars[bars.length - 1] : null;
+  const liveTick = useLiveTick(symbol, timeframe, lastBar);
+  const currentPrice = liveTick?.close ?? quote?.price ?? lastBar?.close ?? 0;
 
   const handleSymbolSelect = (sym: string, name: string) => {
     setSymbol(sym);
@@ -87,7 +90,7 @@ function AppInner() {
           </div>
         </div>
       )}
-      <NexusChart bars={bars} chartType={chartType} indicators={indicators} drawingTool={drawingTool} clearDrawings={clearDrawings} undoDrawing={undoDrawing} />
+      <NexusChart bars={bars} chartType={chartType} indicators={indicators} drawingTool={drawingTool} clearDrawings={clearDrawings} undoDrawing={undoDrawing} liveTick={liveTick} />
     </div>
   );
 
