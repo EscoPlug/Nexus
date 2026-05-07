@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-
-const WS_URL = `ws://${window.location.hostname}:3001`;
+import { useState, useEffect, useRef } from 'react';
+import { fetchQuote, getDataSource } from '../api';
+import { simQuote } from '../api/simulation';
 
 interface PriceUpdate {
   price: number;
   change: number;
   changePercent: number;
-  volume: number;
-  high: number;
-  low: number;
+  volume?: number;
+  high?: number;
+  low?: number;
 }
 
 export function useLivePrice(symbols: string[]) {
@@ -17,50 +17,70 @@ export function useLivePrice(symbols: string[]) {
   const symbolsRef = useRef(symbols);
   symbolsRef.current = symbols;
 
-  const connect = useCallback(() => {
-    try {
-      const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'subscribe', symbols: symbolsRef.current }));
-      };
-
-      ws.onmessage = (event) => {
+  // Try WebSocket first (works on local dev with backend)
+  useEffect(() => {
+    getDataSource().then(source => {
+      if (source === 'backend') {
         try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'prices') {
-            setPrices(prev => ({ ...prev, ...msg.data }));
-          }
+          const wsUrl = `ws://${window.location.hostname}:3001`;
+          const ws = new WebSocket(wsUrl);
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            ws.send(JSON.stringify({ type: 'subscribe', symbols: symbolsRef.current }));
+          };
+          ws.onmessage = (e) => {
+            try {
+              const msg = JSON.parse(e.data);
+              if (msg.type === 'prices') setPrices(prev => ({ ...prev, ...msg.data }));
+            } catch {}
+          };
+          ws.onerror = () => ws.close();
         } catch {}
-      };
-
-      ws.onclose = () => {
-        setTimeout(connect, 5000);
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-
-      return ws;
-    } catch {
-      setTimeout(connect, 5000);
-    }
+      }
+    });
+    return () => { wsRef.current?.close(); };
   }, []);
 
-  useEffect(() => {
-    const ws = connect();
-    return () => {
-      ws?.close();
-      wsRef.current = null;
-    };
-  }, [connect]);
-
+  // Subscribe to new symbols when watchlist changes
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols }));
     }
+  }, [symbols.join(',')]);
+
+  // Poll client-side API for price updates every 10s
+  useEffect(() => {
+    if (symbols.length === 0) return;
+
+    const poll = async () => {
+      const updates: Record<string, PriceUpdate> = {};
+      await Promise.allSettled(
+        symbols.map(async sym => {
+          try {
+            const source = await getDataSource();
+            if (source === 'backend') return; // handled by WebSocket
+            const q = source === 'simulated' ? simQuote(sym) : await fetchQuote(sym);
+            if (q) {
+              // Add tiny jitter for visual "live" movement
+              const jitter = source === 'simulated' ? (Math.random() - 0.5) * 0.003 : 0;
+              updates[sym] = {
+                price: q.price * (1 + jitter),
+                change: q.change,
+                changePercent: q.changePercent,
+              };
+            }
+          } catch {}
+        })
+      );
+      if (Object.keys(updates).length > 0) {
+        setPrices(prev => ({ ...prev, ...updates }));
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => clearInterval(id);
   }, [symbols.join(',')]);
 
   return prices;

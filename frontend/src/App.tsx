@@ -21,7 +21,7 @@ export default function App() {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(DEFAULT_WATCHLIST);
   const [showNews, setShowNews] = useState(true);
 
-  const { bars, quote, loading } = useChartData(symbol, timeframe);
+  const { bars, quote, loading, dataSource } = useChartData(symbol, timeframe);
 
   const watchlistSymbols = useMemo(() => watchlist.map(w => w.symbol), [watchlist]);
   const livePrices = useLivePrice(watchlistSymbols);
@@ -122,6 +122,13 @@ export default function App() {
         <div className="flex items-center gap-3 text-[10px] text-[#8b949e]">
           {bars.length > 0 && <span>{bars.length} bars</span>}
           {indicators.length > 0 && <span>{indicators.length} indicator{indicators.length !== 1 ? 's' : ''}</span>}
+          <span className={`px-1.5 py-0.5 rounded font-medium ${
+            dataSource === 'yahoo' ? 'bg-[#3fb950]/20 text-[#3fb950]' :
+            dataSource === 'backend' ? 'bg-[#1f6feb]/20 text-[#79c0ff]' :
+            'bg-[#d29922]/20 text-[#d29922]'
+          }`}>
+            {dataSource === 'yahoo' ? '● Live' : dataSource === 'backend' ? '● Backend' : '◌ Simulated'}
+          </span>
           <button
             onClick={() => setShowNews(!showNews)}
             className="hover:text-white transition-colors"
