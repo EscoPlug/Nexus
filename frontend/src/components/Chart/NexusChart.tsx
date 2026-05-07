@@ -82,14 +82,15 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
   const isSyncingRef = useRef(false);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-  // Drawing overlay state
-  const drawingsRef = useRef<Drawing[]>([]);
-  const pendingP1Ref = useRef<{ time: UTCTimestamp; price: number } | null>(null);
-  const drawingToolRef = useRef<DrawingToolType>(drawingTool);
-  const colorIndexRef = useRef(0);
-  const [svgTick, setSvgTick] = useState(0);
+  // Drawing overlay — use React state so SVG re-renders are guaranteed
+  const [drawings, setDrawings] = useState<Drawing[]>([]);
+  const [pendingP1, setPendingP1] = useState<{ time: UTCTimestamp; price: number } | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
-  const forceRedraw = useCallback(() => setSvgTick(n => n + 1), []);
+  const [scrollVersion, setScrollVersion] = useState(0); // re-renders SVG on chart pan/zoom
+  // Refs to read latest values inside once-registered chart event handlers (no stale closures)
+  const drawingToolRef = useRef<DrawingToolType>(drawingTool);
+  const pendingP1Ref = useRef<{ time: UTCTimestamp; price: number } | null>(null);
+  const colorIndexRef = useRef(0);
 
   const syncTimeScale = useCallback((source: IChartApi) => {
     if (isSyncingRef.current) return;
@@ -571,11 +572,10 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     mainChartRef.current = chart;
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
       syncTimeScale(chart);
-      setSvgTick(n => n + 1);
+      setScrollVersion(n => n + 1);
     });
 
-    // Drawing clicks — chart.subscribeClick is the only reliable way since
-    // lightweight-charts stops propagation on its canvas mouse events.
+    // chart.subscribeClick is the only reliable click API — the canvas blocks DOM bubbling
     chart.subscribeClick(params => {
       const tool = drawingToolRef.current;
       if (tool === 'none' || !params.point) return;
@@ -584,53 +584,35 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
       const time = chart.timeScale().coordinateToTime(params.point.x) as UTCTimestamp | null;
       const price = series.coordinateToPrice(params.point.y);
       if (time === null || price === null) return;
-
-      const addDrawing = (p2?: { time: UTCTimestamp; price: number }) => {
-        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
-        colorIndexRef.current++;
-        drawingsRef.current = [...drawingsRef.current, {
-          id: `${Date.now()}`,
-          tool,
-          color,
-          p1: pendingP1Ref.current ?? { time, price },
-          p2,
-        }];
-        pendingP1Ref.current = null;
-        setSvgTick(n => n + 1);
-      };
+      const p: { time: UTCTimestamp; price: number } = { time, price: price as number };
 
       if (tool === 'hline' || tool === 'vline') {
-        addDrawing();
+        const color = DRAW_COLORS[colorIndexRef.current++ % DRAW_COLORS.length];
+        setDrawings(prev => [...prev, { id: `${Date.now()}`, tool, color, p1: p }]);
       } else if (tool === 'text') {
         const label = window.prompt('Label:') ?? '';
         if (!label) return;
-        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
-        colorIndexRef.current++;
-        drawingsRef.current = [...drawingsRef.current, { id: `${Date.now()}`, tool, color, p1: { time, price }, label }];
-        setSvgTick(n => n + 1);
+        const color = DRAW_COLORS[colorIndexRef.current++ % DRAW_COLORS.length];
+        setDrawings(prev => [...prev, { id: `${Date.now()}`, tool, color, p1: p, label }]);
       } else if (pendingP1Ref.current === null) {
-        pendingP1Ref.current = { time, price };
-        setSvgTick(n => n + 1);
+        pendingP1Ref.current = p;
+        setPendingP1(p);
       } else {
-        addDrawing({ time, price });
+        const p1 = pendingP1Ref.current;
+        const color = DRAW_COLORS[colorIndexRef.current++ % DRAW_COLORS.length];
+        setDrawings(prev => [...prev, { id: `${Date.now()}`, tool, color, p1, p2: p }]);
+        pendingP1Ref.current = null;
+        setPendingP1(null);
       }
     });
 
-    // Track mouse position (for drawing preview) + external crosshair callback
     chart.subscribeCrosshairMove(params => {
-      if (drawingToolRef.current !== 'none' && params.point) {
-        setMousePos({ x: params.point.x, y: params.point.y });
-      } else {
-        setMousePos(null);
-      }
-      if (onCrosshairMove) {
-        const seriesData = params.seriesData;
-        let price: number | null = null;
-        if (seriesData.size > 0) {
-          const first = seriesData.values().next().value as { close?: number; value?: number };
-          price = first?.close ?? first?.value ?? null;
-        }
-        onCrosshairMove({ price, time: (params.time as number) ?? null });
+      setMousePos(drawingToolRef.current !== 'none' && params.point
+        ? { x: params.point.x, y: params.point.y }
+        : null);
+      if (onCrosshairMove && params.seriesData.size > 0) {
+        const first = params.seriesData.values().next().value as { close?: number; value?: number };
+        onCrosshairMove({ price: first?.close ?? first?.value ?? null, time: (params.time as number) ?? null });
       }
     });
 
@@ -699,176 +681,143 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     buildSubChartIndicators(activeBars);
   }, [indicators]);
 
-  // Sync drawingToolRef and cancel pending on tool change
+  // Keep ref in sync with prop (read in event handler to avoid stale closure)
   useEffect(() => {
     drawingToolRef.current = drawingTool;
     pendingP1Ref.current = null;
-    forceRedraw();
-  }, [drawingTool, forceRedraw]);
+    setPendingP1(null);
+  }, [drawingTool]);
 
-  // Clear all drawings
-  useEffect(() => {
-    if (!clearDrawings) return;
-    drawingsRef.current = [];
-    pendingP1Ref.current = null;
-    forceRedraw();
-  }, [clearDrawings, forceRedraw]);
+  useEffect(() => { if (clearDrawings) { setDrawings([]); setPendingP1(null); pendingP1Ref.current = null; } }, [clearDrawings]);
+  useEffect(() => { if (undoDrawing) setDrawings(prev => prev.slice(0, -1)); }, [undoDrawing]);
 
-  // Undo last drawing
   useEffect(() => {
-    if (!undoDrawing) return;
-    drawingsRef.current = drawingsRef.current.slice(0, -1);
-    forceRedraw();
-  }, [undoDrawing, forceRedraw]);
-
-  // Mouse event handlers for drawing — use chart's own event API (DOM click bubbling is blocked)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        pendingP1Ref.current = null;
-        forceRedraw();
-      }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { pendingP1Ref.current = null; setPendingP1(null); }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [forceRedraw]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  // Build SVG drawing elements
-  const svgDrawings = (() => {
-    const chart = mainChartRef.current;
-    const series = mainSeriesRef.current;
+  // Coordinate conversion helpers — read chart/series from refs at render time
+  const chart = mainChartRef.current;
+  const series = mainSeriesRef.current;
+  const px = (time: UTCTimestamp, price: number) => {
     if (!chart || !series) return null;
+    const x = chart.timeScale().timeToCoordinate(time);
+    const y = series.priceToCoordinate(price);
+    return (x === null || y === null) ? null : { x: x as number, y: y as number };
+  };
 
-    const px = (time: UTCTimestamp, price: number) => {
-      const x = chart.timeScale().timeToCoordinate(time);
-      const y = series.priceToCoordinate(price);
-      return (x === null || y === null) ? null : { x, y };
-    };
-
-    const allDrawings = [...drawingsRef.current];
-
-    // Add preview drawing while placing second point
-    const pending = pendingP1Ref.current;
-    const tool = drawingToolRef.current;
-    if (pending && mousePos && tool !== 'none' && tool !== 'hline' && tool !== 'vline' && tool !== 'text') {
-      const mp = px(pending.time, pending.price);
-      if (mp) {
-        const elements: JSX.Element[] = [
-          <line key="preview-line" x1={mp.x} y1={mp.y} x2={mousePos.x} y2={mousePos.y}
-            stroke={DRAW_COLOR} strokeWidth="1" strokeDasharray="5,4" opacity="0.7" />,
-          <circle key="preview-dot" cx={mp.x} cy={mp.y} r="4" fill={DRAW_COLOR} opacity="0.8" />,
-        ];
-        if (tool === 'rectangle') {
-          elements.push(
-            <rect key="preview-rect"
-              x={Math.min(mp.x, mousePos.x)} y={Math.min(mp.y, mousePos.y)}
-              width={Math.abs(mousePos.x - mp.x)} height={Math.abs(mousePos.y - mp.y)}
-              fill={`${DRAW_COLOR}18`} stroke={DRAW_COLOR} strokeWidth="1" strokeDasharray="5,4" opacity="0.7" />
-          );
-        }
-        return <g key="previews">{elements}</g>;
-      }
-    }
-
-    return allDrawings.map(d => {
-      const p1 = px(d.p1.time, d.p1.price);
-      if (!p1) return null;
-
-      switch (d.tool) {
-        case 'hline': return (
+  // Render each completed drawing
+  const renderedDrawings = drawings.map(d => {
+    const p1 = px(d.p1.time, d.p1.price);
+    if (!p1) return null;
+    switch (d.tool) {
+      case 'hline': return (
+        <g key={d.id}>
+          <line x1={0} y1={p1.y} x2={9999} y2={p1.y} stroke={d.color} strokeWidth="1.5" strokeDasharray="6,4" />
+          <text x={8} y={p1.y - 4} fill={d.color} fontSize="10" fontFamily="monospace">{d.p1.price.toFixed(2)}</text>
+        </g>
+      );
+      case 'vline': return (
+        <line key={d.id} x1={p1.x} y1={0} x2={p1.x} y2={9999} stroke={d.color} strokeWidth="1.5" strokeDasharray="6,4" />
+      );
+      case 'text': return (
+        <g key={d.id}>
+          <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
+          <text x={p1.x + 6} y={p1.y + 4} fill={d.color} fontSize="12" fontFamily="sans-serif">{d.label}</text>
+        </g>
+      );
+      case 'trendline': {
+        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
+        if (!p2) return null;
+        return (
           <g key={d.id}>
-            <line x1={0} y1={p1.y} x2={9999} y2={p1.y} stroke={d.color} strokeWidth="1" strokeDasharray="6,4" />
-            <text x={6} y={p1.y - 4} fill={d.color} fontSize="10" fontFamily="monospace">{d.p1.price.toFixed(2)}</text>
-          </g>
-        );
-        case 'vline': return (
-          <line key={d.id} x1={p1.x} y1={0} x2={p1.x} y2={9999} stroke={d.color} strokeWidth="1" strokeDasharray="6,4" />
-        );
-        case 'text': return (
-          <g key={d.id}>
+            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={d.color} strokeWidth="1.5" />
             <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
-            <text x={p1.x + 6} y={p1.y + 4} fill={d.color} fontSize="12" fontFamily="sans-serif">{d.label}</text>
+            <circle cx={p2.x} cy={p2.y} r="3" fill={d.color} />
           </g>
         );
-        case 'trendline': {
-          if (!d.p2) return null;
-          const p2 = px(d.p2.time, d.p2.price);
-          if (!p2) return null;
-          return (
-            <g key={d.id}>
-              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={d.color} strokeWidth="1.5" />
-              <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
-              <circle cx={p2.x} cy={p2.y} r="3" fill={d.color} />
-            </g>
-          );
-        }
-        case 'ray': {
-          if (!d.p2) return null;
-          const p2 = px(d.p2.time, d.p2.price);
-          if (!p2) return null;
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const len = Math.sqrt(dx * dx + dy * dy);
-          if (len === 0) return null;
-          const ext = 9999;
-          return (
-            <g key={d.id}>
-              <line x1={p1.x} y1={p1.y} x2={p1.x + (dx / len) * ext} y2={p1.y + (dy / len) * ext} stroke={d.color} strokeWidth="1.5" />
-              <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
-            </g>
-          );
-        }
-        case 'rectangle': {
-          if (!d.p2) return null;
-          const p2 = px(d.p2.time, d.p2.price);
-          if (!p2) return null;
-          return (
-            <rect key={d.id}
-              x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
-              width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
-              fill={`${d.color}18`} stroke={d.color} strokeWidth="1.5" />
-          );
-        }
-        case 'fibonacci': {
-          if (!d.p2) return null;
-          const p2 = px(d.p2.time, d.p2.price);
-          if (!p2) return null;
-          const priceRange = d.p1.price - d.p2.price;
-          const xMin = Math.min(p1.x, p2.x);
-          const xMax = Math.max(p1.x, p2.x);
-          const fibColors = ['#3fb950', '#79c0ff', '#d29922', '#fff', '#d29922', '#79c0ff', '#f85149'];
-          return (
-            <g key={d.id}>
-              {FIB_LEVELS.map((level, i) => {
-                const fibPrice = d.p2!.price + priceRange * level;
-                const fibPos = px(d.p1.time, fibPrice);
-                if (!fibPos) return null;
-                return (
-                  <g key={level}>
-                    <line x1={xMin} y1={fibPos.y} x2={xMax} y2={fibPos.y} stroke={fibColors[i]} strokeWidth="1" strokeDasharray={level === 0 || level === 1 ? 'none' : '4,3'} />
-                    <text x={xMax + 4} y={fibPos.y + 4} fill={fibColors[i]} fontSize="9" fontFamily="monospace">{(level * 100).toFixed(1)}%</text>
-                  </g>
-                );
-              })}
-            </g>
-          );
-        }
-        default: return null;
       }
-    });
-  })();
+      case 'ray': {
+        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
+        if (!p2) return null;
+        const dx = p2.x - p1.x, dy = p2.y - p1.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (!len) return null;
+        return (
+          <g key={d.id}>
+            <line x1={p1.x} y1={p1.y} x2={p1.x + (dx / len) * 9999} y2={p1.y + (dy / len) * 9999} stroke={d.color} strokeWidth="1.5" />
+            <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
+          </g>
+        );
+      }
+      case 'rectangle': {
+        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
+        if (!p2) return null;
+        return (
+          <rect key={d.id}
+            x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
+            width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
+            fill={`${d.color}18`} stroke={d.color} strokeWidth="1.5" />
+        );
+      }
+      case 'fibonacci': {
+        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
+        if (!p2) return null;
+        const priceRange = d.p1.price - d.p2!.price;
+        const xMin = Math.min(p1.x, p2.x), xMax = Math.max(p1.x, p2.x);
+        const fibColors = ['#3fb950', '#79c0ff', '#d29922', '#fff', '#d29922', '#79c0ff', '#f85149'];
+        return (
+          <g key={d.id}>
+            {FIB_LEVELS.map((level, i) => {
+              const fp = px(d.p1.time, d.p2!.price + priceRange * level);
+              if (!fp) return null;
+              return (
+                <g key={level}>
+                  <line x1={xMin} y1={fp.y} x2={xMax} y2={fp.y} stroke={fibColors[i]} strokeWidth="1" strokeDasharray={level === 0 || level === 1 ? undefined : '4,3'} />
+                  <text x={xMax + 4} y={fp.y + 4} fill={fibColors[i]} fontSize="9" fontFamily="monospace">{(level * 100).toFixed(1)}%</text>
+                </g>
+              );
+            })}
+          </g>
+        );
+      }
+      default: return null;
+    }
+  });
 
-  // Suppress the svgTick lint warning — it's used to force SVG re-renders
-  void svgTick;
+  // Dashed preview while placing the second point of a two-click tool
+  const tool = drawingToolRef.current;
+  const previewEl = pendingP1 && mousePos && tool !== 'none' && tool !== 'hline' && tool !== 'vline' && tool !== 'text'
+    ? (() => {
+        const mp = px(pendingP1.time, pendingP1.price);
+        if (!mp) return null;
+        return (
+          <g key="__preview">
+            {tool === 'rectangle'
+              ? <rect x={Math.min(mp.x, mousePos.x)} y={Math.min(mp.y, mousePos.y)}
+                  width={Math.abs(mousePos.x - mp.x)} height={Math.abs(mousePos.y - mp.y)}
+                  fill={`${DRAW_COLOR}18`} stroke={DRAW_COLOR} strokeWidth="1" strokeDasharray="5,4" opacity="0.8" />
+              : <line x1={mp.x} y1={mp.y} x2={mousePos.x} y2={mousePos.y}
+                  stroke={DRAW_COLOR} strokeWidth="1.5" strokeDasharray="5,4" opacity="0.8" />
+            }
+            <circle cx={mp.x} cy={mp.y} r="4" fill={DRAW_COLOR} opacity="0.9" />
+          </g>
+        );
+      })()
+    : null;
+
+  void scrollVersion; // used to trigger re-render on chart pan/zoom
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}>
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%', cursor: drawingTool !== 'none' ? 'crosshair' : 'default' }} />
-        <svg
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
-        >
-          {svgDrawings}
+        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}>
+          {renderedDrawings}
+          {previewEl}
         </svg>
       </div>
       <div ref={subContainerRef} style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }} />
