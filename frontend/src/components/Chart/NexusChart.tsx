@@ -574,17 +574,65 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
       setSvgTick(n => n + 1);
     });
 
-    if (onCrosshairMove) {
-      chart.subscribeCrosshairMove(param => {
-        const seriesData = param.seriesData;
+    // Drawing clicks — chart.subscribeClick is the only reliable way since
+    // lightweight-charts stops propagation on its canvas mouse events.
+    chart.subscribeClick(params => {
+      const tool = drawingToolRef.current;
+      if (tool === 'none' || !params.point) return;
+      const series = mainSeriesRef.current;
+      if (!series) return;
+      const time = chart.timeScale().coordinateToTime(params.point.x) as UTCTimestamp | null;
+      const price = series.coordinateToPrice(params.point.y);
+      if (time === null || price === null) return;
+
+      const addDrawing = (p2?: { time: UTCTimestamp; price: number }) => {
+        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
+        colorIndexRef.current++;
+        drawingsRef.current = [...drawingsRef.current, {
+          id: `${Date.now()}`,
+          tool,
+          color,
+          p1: pendingP1Ref.current ?? { time, price },
+          p2,
+        }];
+        pendingP1Ref.current = null;
+        setSvgTick(n => n + 1);
+      };
+
+      if (tool === 'hline' || tool === 'vline') {
+        addDrawing();
+      } else if (tool === 'text') {
+        const label = window.prompt('Label:') ?? '';
+        if (!label) return;
+        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
+        colorIndexRef.current++;
+        drawingsRef.current = [...drawingsRef.current, { id: `${Date.now()}`, tool, color, p1: { time, price }, label }];
+        setSvgTick(n => n + 1);
+      } else if (pendingP1Ref.current === null) {
+        pendingP1Ref.current = { time, price };
+        setSvgTick(n => n + 1);
+      } else {
+        addDrawing({ time, price });
+      }
+    });
+
+    // Track mouse position (for drawing preview) + external crosshair callback
+    chart.subscribeCrosshairMove(params => {
+      if (drawingToolRef.current !== 'none' && params.point) {
+        setMousePos({ x: params.point.x, y: params.point.y });
+      } else {
+        setMousePos(null);
+      }
+      if (onCrosshairMove) {
+        const seriesData = params.seriesData;
         let price: number | null = null;
         if (seriesData.size > 0) {
           const first = seriesData.values().next().value as { close?: number; value?: number };
           price = first?.close ?? first?.value ?? null;
         }
-        onCrosshairMove({ price, time: (param.time as number) ?? null });
-      });
-    }
+        onCrosshairMove({ price, time: (params.time as number) ?? null });
+      }
+    });
 
     resizeObserverRef.current = new ResizeObserver(entries => {
       const entry = entries[0];
@@ -673,89 +721,16 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     forceRedraw();
   }, [undoDrawing, forceRedraw]);
 
-  // Mouse event handlers for drawing
+  // Mouse event handlers for drawing — use chart's own event API (DOM click bubbling is blocked)
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const getChartCoords = (clientX: number, clientY: number) => {
-      const chart = mainChartRef.current;
-      const series = mainSeriesRef.current;
-      if (!chart || !series) return null;
-      const rect = el.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-      const time = chart.timeScale().coordinateToTime(x) as UTCTimestamp | null;
-      const price = series.coordinateToPrice(y);
-      if (time === null || price === null) return null;
-      return { time, price, x, y };
-    };
-
-    const handleClick = (e: MouseEvent) => {
-      const tool = drawingToolRef.current;
-      if (tool === 'none') return;
-      const coords = getChartCoords(e.clientX, e.clientY);
-      if (!coords) return;
-      const { time, price } = coords;
-
-      if (tool === 'hline' || tool === 'vline') {
-        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
-        colorIndexRef.current++;
-        drawingsRef.current = [...drawingsRef.current, { id: `${Date.now()}`, tool, color, p1: { time, price } }];
-        forceRedraw();
-      } else if (tool === 'text') {
-        const label = window.prompt('Enter label:') ?? '';
-        if (!label) return;
-        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
-        colorIndexRef.current++;
-        drawingsRef.current = [...drawingsRef.current, { id: `${Date.now()}`, tool, color, p1: { time, price }, label }];
-        forceRedraw();
-      } else if (pendingP1Ref.current === null) {
-        pendingP1Ref.current = { time, price };
-        forceRedraw();
-      } else {
-        const color = DRAW_COLORS[colorIndexRef.current % DRAW_COLORS.length];
-        colorIndexRef.current++;
-        drawingsRef.current = [...drawingsRef.current, {
-          id: `${Date.now()}`,
-          tool,
-          color,
-          p1: pendingP1Ref.current,
-          p2: { time, price },
-        }];
-        pendingP1Ref.current = null;
-        forceRedraw();
-      }
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (drawingToolRef.current === 'none') {
-        setMousePos(null);
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    };
-
-    const handleMouseLeave = () => setMousePos(null);
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         pendingP1Ref.current = null;
         forceRedraw();
       }
     };
-
-    el.addEventListener('click', handleClick);
-    el.addEventListener('mousemove', handleMouseMove);
-    el.addEventListener('mouseleave', handleMouseLeave);
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      el.removeEventListener('click', handleClick);
-      el.removeEventListener('mousemove', handleMouseMove);
-      el.removeEventListener('mouseleave', handleMouseLeave);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [forceRedraw]);
 
   // Build SVG drawing elements
