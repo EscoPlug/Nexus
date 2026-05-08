@@ -96,6 +96,7 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
   const [pendingP1, setPendingP1] = useState<DrawPoint | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [scrollVersion, setScrollVersion] = useState(0); // re-renders SVG on chart pan/zoom
+  const [clickFlash, setClickFlash] = useState<{ x: number; y: number; t: number } | null>(null);
   // Refs to read latest values inside once-registered chart event handlers (no stale closures)
   const drawingToolRef = useRef<DrawingToolType>(drawingTool);
   const pendingP1Ref = useRef<DrawPoint | null>(null);
@@ -590,22 +591,24 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     // chart.subscribeClick is the only reliable click API — the canvas blocks DOM bubbling
     chart.subscribeClick(params => {
       const tool = drawingToolRef.current;
-      if (tool === 'none' || !params.point) return;
+      if (!params.point) return;
+
+      // Always show click flash so the user can confirm clicks reach the chart
+      const xPx = params.point.x as number;
+      const yPx = params.point.y as number;
+      setClickFlash({ x: xPx, y: yPx, t: Date.now() });
+
+      if (tool === 'none') return;
       const s = mainSeriesRef.current;
       if (!s) return;
 
-      // Always capture raw pixel coordinates — these work even in empty (future) space
-      const xPx = params.point.x as number;
-      const yPx = params.point.y as number;
-
       // price is nearly always valid (clicked within chart area)
       const rawPrice = s.coordinateToPrice(yPx);
-      if (rawPrice === null) return;
-      const price = rawPrice as number;
+      // Fallback: if coordinateToPrice fails, derive price by other means (rare)
+      const price = (rawPrice as number | null) ?? 0;
 
-      // time can be null when clicking in future empty space — only block for time-dependent tools
+      // time can be null when clicking in future empty space — that's OK, we use xPx as fallback
       const rawTime = chart.timeScale().coordinateToTime(xPx) as UTCTimestamp | null;
-      if (rawTime === null && tool !== 'hline') return;
       const time = (rawTime ?? 0) as UTCTimestamp;
 
       const p: DrawPoint = { time, price, xPx, yPx };
@@ -839,9 +842,21 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     }
   });
 
-  // Dashed preview while placing the second point of a two-click tool
-  // Use stored pixel coords (xPx/yPx) for the anchor — no coordinate conversion needed
+  // Always show pending p1 marker (independent of mouse movement)
   const tool = drawingToolRef.current;
+  const pendingMarker = pendingP1 ? (() => {
+    const ax = getX(pendingP1), ay = getY(pendingP1);
+    return (
+      <g key="__pending">
+        <circle cx={ax} cy={ay} r="6" fill="none" stroke={DRAW_COLOR} strokeWidth="2" opacity="0.9">
+          <animate attributeName="r" values="6;10;6" dur="1.2s" repeatCount="indefinite" />
+        </circle>
+        <circle cx={ax} cy={ay} r="3" fill={DRAW_COLOR} />
+      </g>
+    );
+  })() : null;
+
+  // Dashed preview line while placing the second point of a two-click tool
   const previewEl = pendingP1 && mousePos && tool !== 'none' && tool !== 'hline' && tool !== 'vline' && tool !== 'text'
     ? (() => {
         const ax = getX(pendingP1), ay = getY(pendingP1);
@@ -854,22 +869,54 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
               : <line x1={ax} y1={ay} x2={mousePos.x} y2={mousePos.y}
                   stroke={DRAW_COLOR} strokeWidth="1.5" strokeDasharray="5,4" opacity="0.8" />
             }
-            <circle cx={ax} cy={ay} r="4" fill={DRAW_COLOR} opacity="0.9" />
           </g>
         );
       })()
     : null;
 
+  // Click flash — confirms the chart received the click
+  const flashEl = clickFlash && Date.now() - clickFlash.t < 600 ? (
+    <g key="__flash" pointerEvents="none">
+      <circle cx={clickFlash.x} cy={clickFlash.y} r="14" fill="none" stroke="#ffd700" strokeWidth="2" opacity="0.85">
+        <animate attributeName="r" from="4" to="22" dur="0.5s" />
+        <animate attributeName="opacity" from="1" to="0" dur="0.5s" />
+      </circle>
+    </g>
+  ) : null;
+
   void scrollVersion; // used to trigger re-render on chart pan/zoom
+
+  // Auto-clear flash after the animation
+  useEffect(() => {
+    if (!clickFlash) return;
+    const id = setTimeout(() => setClickFlash(null), 700);
+    return () => clearTimeout(id);
+  }, [clickFlash]);
+
+  const showDebug = drawingTool !== 'none' || drawings.length > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}>
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0, cursor: drawingTool !== 'none' ? 'crosshair' : 'default' }} />
-        <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
+        <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible', zIndex: 10 }}>
           {renderedDrawings}
+          {pendingMarker}
           {previewEl}
+          {flashEl}
         </svg>
+        {showDebug && (
+          <div style={{
+            position: 'absolute', top: 8, right: 64, zIndex: 20,
+            background: 'rgba(13,17,23,0.9)', border: '1px solid #21262d',
+            padding: '6px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
+            color: '#8b949e', pointerEvents: 'none', lineHeight: 1.4,
+          }}>
+            <div>tool: <span style={{ color: '#79c0ff' }}>{drawingTool}</span></div>
+            <div>drawings: <span style={{ color: '#3fb950' }}>{drawings.length}</span>{pendingP1 ? ' (placing…)' : ''}</div>
+            {pendingP1 && <div style={{ color: '#d29922' }}>click again to finish</div>}
+          </div>
+        )}
       </div>
       <div ref={subContainerRef} style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }} />
     </div>
