@@ -29,12 +29,19 @@ const DRAW_COLOR = '#f39c12';
 const DRAW_COLORS = ['#f39c12', '#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '#1abc9c'];
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 
+interface DrawPoint {
+  time: UTCTimestamp;  // 0 = unknown (hlines don't need time)
+  price: number;
+  xPx: number;        // pixel x at click time — used as rendering fallback
+  yPx: number;        // pixel y at click time — used as rendering fallback
+}
+
 interface Drawing {
   id: string;
   tool: DrawingToolType;
   color: string;
-  p1: { time: UTCTimestamp; price: number };
-  p2?: { time: UTCTimestamp; price: number };
+  p1: DrawPoint;
+  p2?: DrawPoint;
   label?: string;
 }
 
@@ -86,12 +93,12 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
 
   // Drawing overlay — use React state so SVG re-renders are guaranteed
   const [drawings, setDrawings] = useState<Drawing[]>([]);
-  const [pendingP1, setPendingP1] = useState<{ time: UTCTimestamp; price: number } | null>(null);
+  const [pendingP1, setPendingP1] = useState<DrawPoint | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [scrollVersion, setScrollVersion] = useState(0); // re-renders SVG on chart pan/zoom
   // Refs to read latest values inside once-registered chart event handlers (no stale closures)
   const drawingToolRef = useRef<DrawingToolType>(drawingTool);
-  const pendingP1Ref = useRef<{ time: UTCTimestamp; price: number } | null>(null);
+  const pendingP1Ref = useRef<DrawPoint | null>(null);
   const colorIndexRef = useRef(0);
 
   const syncTimeScale = useCallback((source: IChartApi) => {
@@ -584,12 +591,24 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     chart.subscribeClick(params => {
       const tool = drawingToolRef.current;
       if (tool === 'none' || !params.point) return;
-      const series = mainSeriesRef.current;
-      if (!series) return;
-      const time = chart.timeScale().coordinateToTime(params.point.x) as UTCTimestamp | null;
-      const price = series.coordinateToPrice(params.point.y);
-      if (time === null || price === null) return;
-      const p: { time: UTCTimestamp; price: number } = { time, price: price as number };
+      const s = mainSeriesRef.current;
+      if (!s) return;
+
+      // Always capture raw pixel coordinates — these work even in empty (future) space
+      const xPx = params.point.x as number;
+      const yPx = params.point.y as number;
+
+      // price is nearly always valid (clicked within chart area)
+      const rawPrice = s.coordinateToPrice(yPx);
+      if (rawPrice === null) return;
+      const price = rawPrice as number;
+
+      // time can be null when clicking in future empty space — only block for time-dependent tools
+      const rawTime = chart.timeScale().coordinateToTime(xPx) as UTCTimestamp | null;
+      if (rawTime === null && tool !== 'hline') return;
+      const time = (rawTime ?? 0) as UTCTimestamp;
+
+      const p: DrawPoint = { time, price, xPx, yPx };
 
       if (tool === 'hline' || tool === 'vline') {
         const color = DRAW_COLORS[colorIndexRef.current++ % DRAW_COLORS.length];
@@ -724,85 +743,92 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Coordinate conversion helpers — read chart/series from refs at render time
+  // Coordinate helpers — prefer live chart conversion (handles pan/zoom),
+  // fall back to the pixel coords captured at click time.
   const chart = mainChartRef.current;
   const series = mainSeriesRef.current;
-  const px = (time: UTCTimestamp, price: number) => {
-    if (!chart || !series) return null;
-    const x = chart.timeScale().timeToCoordinate(time);
-    const y = series.priceToCoordinate(price);
-    return (x === null || y === null) ? null : { x: x as number, y: y as number };
+
+  const getX = (pt: DrawPoint): number => {
+    if (pt.time === 0) return pt.xPx; // hline sentinel
+    if (!chart) return pt.xPx;
+    const c = chart.timeScale().timeToCoordinate(pt.time);
+    return c !== null ? (c as number) : pt.xPx;
+  };
+
+  const getY = (pt: DrawPoint): number => {
+    if (!series) return pt.yPx;
+    const c = series.priceToCoordinate(pt.price);
+    return c !== null ? (c as number) : pt.yPx;
   };
 
   // Render each completed drawing
   const renderedDrawings = drawings.map(d => {
-    const p1 = px(d.p1.time, d.p1.price);
-    if (!p1) return null;
+    const x1 = getX(d.p1), y1 = getY(d.p1);
     switch (d.tool) {
       case 'hline': return (
         <g key={d.id}>
-          <line x1={0} y1={p1.y} x2={9999} y2={p1.y} stroke={d.color} strokeWidth="1.5" strokeDasharray="6,4" />
-          <text x={8} y={p1.y - 4} fill={d.color} fontSize="10" fontFamily="monospace">{d.p1.price.toFixed(2)}</text>
+          <line x1={0} y1={y1} x2={9999} y2={y1} stroke={d.color} strokeWidth="1.5" strokeDasharray="6,4" />
+          <text x={8} y={y1 - 4} fill={d.color} fontSize="10" fontFamily="monospace">{d.p1.price.toFixed(2)}</text>
         </g>
       );
       case 'vline': return (
-        <line key={d.id} x1={p1.x} y1={0} x2={p1.x} y2={9999} stroke={d.color} strokeWidth="1.5" strokeDasharray="6,4" />
+        <line key={d.id} x1={x1} y1={0} x2={x1} y2={9999} stroke={d.color} strokeWidth="1.5" strokeDasharray="6,4" />
       );
       case 'text': return (
         <g key={d.id}>
-          <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
-          <text x={p1.x + 6} y={p1.y + 4} fill={d.color} fontSize="12" fontFamily="sans-serif">{d.label}</text>
+          <circle cx={x1} cy={y1} r="3" fill={d.color} />
+          <text x={x1 + 6} y={y1 + 4} fill={d.color} fontSize="12" fontFamily="sans-serif">{d.label}</text>
         </g>
       );
       case 'trendline': {
-        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
-        if (!p2) return null;
+        if (!d.p2) return null;
+        const x2 = getX(d.p2), y2 = getY(d.p2);
         return (
           <g key={d.id}>
-            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={d.color} strokeWidth="1.5" />
-            <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
-            <circle cx={p2.x} cy={p2.y} r="3" fill={d.color} />
+            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={d.color} strokeWidth="1.5" />
+            <circle cx={x1} cy={y1} r="3" fill={d.color} />
+            <circle cx={x2} cy={y2} r="3" fill={d.color} />
           </g>
         );
       }
       case 'ray': {
-        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
-        if (!p2) return null;
-        const dx = p2.x - p1.x, dy = p2.y - p1.y;
+        if (!d.p2) return null;
+        const x2 = getX(d.p2), y2 = getY(d.p2);
+        const dx = x2 - x1, dy = y2 - y1;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (!len) return null;
         return (
           <g key={d.id}>
-            <line x1={p1.x} y1={p1.y} x2={p1.x + (dx / len) * 9999} y2={p1.y + (dy / len) * 9999} stroke={d.color} strokeWidth="1.5" />
-            <circle cx={p1.x} cy={p1.y} r="3" fill={d.color} />
+            <line x1={x1} y1={y1} x2={x1 + (dx / len) * 9999} y2={y1 + (dy / len) * 9999} stroke={d.color} strokeWidth="1.5" />
+            <circle cx={x1} cy={y1} r="3" fill={d.color} />
           </g>
         );
       }
       case 'rectangle': {
-        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
-        if (!p2) return null;
+        if (!d.p2) return null;
+        const x2 = getX(d.p2), y2 = getY(d.p2);
         return (
           <rect key={d.id}
-            x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y)}
-            width={Math.abs(p2.x - p1.x)} height={Math.abs(p2.y - p1.y)}
+            x={Math.min(x1, x2)} y={Math.min(y1, y2)}
+            width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)}
             fill={`${d.color}18`} stroke={d.color} strokeWidth="1.5" />
         );
       }
       case 'fibonacci': {
-        const p2 = d.p2 ? px(d.p2.time, d.p2.price) : null;
-        if (!p2) return null;
-        const priceRange = d.p1.price - d.p2!.price;
-        const xMin = Math.min(p1.x, p2.x), xMax = Math.max(p1.x, p2.x);
+        if (!d.p2) return null;
+        const x2 = getX(d.p2);
+        const priceRange = d.p1.price - d.p2.price;
+        const xMin = Math.min(x1, x2), xMax = Math.max(x1, x2);
         const fibColors = ['#3fb950', '#79c0ff', '#d29922', '#fff', '#d29922', '#79c0ff', '#f85149'];
         return (
           <g key={d.id}>
             {FIB_LEVELS.map((level, i) => {
-              const fp = px(d.p1.time, d.p2!.price + priceRange * level);
-              if (!fp) return null;
+              const fibPrice = d.p2!.price + priceRange * level;
+              const fy = series ? ((series.priceToCoordinate(fibPrice) as number | null) ?? 0) : 0;
               return (
                 <g key={level}>
-                  <line x1={xMin} y1={fp.y} x2={xMax} y2={fp.y} stroke={fibColors[i]} strokeWidth="1" strokeDasharray={level === 0 || level === 1 ? undefined : '4,3'} />
-                  <text x={xMax + 4} y={fp.y + 4} fill={fibColors[i]} fontSize="9" fontFamily="monospace">{(level * 100).toFixed(1)}%</text>
+                  <line x1={xMin} y1={fy} x2={xMax} y2={fy} stroke={fibColors[i]} strokeWidth="1" strokeDasharray={level === 0 || level === 1 ? undefined : '4,3'} />
+                  <text x={xMax + 4} y={fy + 4} fill={fibColors[i]} fontSize="9" fontFamily="monospace">{(level * 100).toFixed(1)}%</text>
                 </g>
               );
             })}
@@ -814,21 +840,21 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
   });
 
   // Dashed preview while placing the second point of a two-click tool
+  // Use stored pixel coords (xPx/yPx) for the anchor — no coordinate conversion needed
   const tool = drawingToolRef.current;
   const previewEl = pendingP1 && mousePos && tool !== 'none' && tool !== 'hline' && tool !== 'vline' && tool !== 'text'
     ? (() => {
-        const mp = px(pendingP1.time, pendingP1.price);
-        if (!mp) return null;
+        const ax = getX(pendingP1), ay = getY(pendingP1);
         return (
           <g key="__preview">
             {tool === 'rectangle'
-              ? <rect x={Math.min(mp.x, mousePos.x)} y={Math.min(mp.y, mousePos.y)}
-                  width={Math.abs(mousePos.x - mp.x)} height={Math.abs(mousePos.y - mp.y)}
+              ? <rect x={Math.min(ax, mousePos.x)} y={Math.min(ay, mousePos.y)}
+                  width={Math.abs(mousePos.x - ax)} height={Math.abs(mousePos.y - ay)}
                   fill={`${DRAW_COLOR}18`} stroke={DRAW_COLOR} strokeWidth="1" strokeDasharray="5,4" opacity="0.8" />
-              : <line x1={mp.x} y1={mp.y} x2={mousePos.x} y2={mousePos.y}
+              : <line x1={ax} y1={ay} x2={mousePos.x} y2={mousePos.y}
                   stroke={DRAW_COLOR} strokeWidth="1.5" strokeDasharray="5,4" opacity="0.8" />
             }
-            <circle cx={mp.x} cy={mp.y} r="4" fill={DRAW_COLOR} opacity="0.9" />
+            <circle cx={ax} cy={ay} r="4" fill={DRAW_COLOR} opacity="0.9" />
           </g>
         );
       })()
@@ -840,7 +866,7 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}>
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0, cursor: drawingTool !== 'none' ? 'crosshair' : 'default' }} />
-        <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
+        <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
           {renderedDrawings}
           {previewEl}
         </svg>
