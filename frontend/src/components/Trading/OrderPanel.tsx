@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, TrendingDown, AlertTriangle, Zap, Calculator, X } from 'lucide-react';
+import { ShoppingCart, TrendingDown, AlertTriangle, Zap, Calculator, X, Wifi } from 'lucide-react';
 import { useTrading } from '../../context/TradingContext';
+import { submitAlpacaOrder } from '../../api/broker';
 import type { OrderType, OrderSide } from '../../types/trading';
 
 interface Props {
@@ -9,7 +10,7 @@ interface Props {
 }
 
 export default function OrderPanel({ symbol, currentPrice }: Props) {
-  const { account, positions, riskSettings, placeOrder, closePosition } = useTrading();
+  const { account, positions, riskSettings, placeOrder, closePosition, brokerMode } = useTrading();
   const [side, setSide] = useState<OrderSide>('buy');
   const [orderType, setOrderType] = useState<OrderType>('market');
   const [shares, setShares] = useState(riskSettings.defaultShares.toString());
@@ -17,6 +18,10 @@ export default function OrderPanel({ symbol, currentPrice }: Props) {
   const [stopPrice, setStopPrice] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [lastFill, setLastFill] = useState<{ side: string; shares: number; price: number } | null>(null);
+  const [alpacaError, setAlpacaError] = useState<string | null>(null);
+
+  const isAlpaca = brokerMode !== 'sim';
+  const isPaper = brokerMode === 'alpaca-paper';
 
   const openPosition = positions.find(p => p.symbol === symbol);
   const sharesNum = parseInt(shares) || 0;
@@ -35,17 +40,45 @@ export default function OrderPanel({ symbol, currentPrice }: Props) {
     }
   }, [account.balance, currentPrice, stopPrice, riskSettings.riskPerTrade]);
 
-  const handleExecute = useCallback(() => {
+  const handleExecute = useCallback(async () => {
     if (sharesNum <= 0) return;
-    const lp = parseFloat(limitPrice) || undefined;
-    const sp = parseFloat(stopPrice) || undefined;
-    const order = placeOrder(symbol, side, orderType, sharesNum, currentPrice, lp, sp);
-    if (order.status === 'filled' && order.fillPrice) {
-      setLastFill({ side, shares: sharesNum, price: order.fillPrice });
-      setTimeout(() => setLastFill(null), 3000);
-    }
     setShowConfirm(false);
-  }, [symbol, side, orderType, sharesNum, limitPrice, stopPrice, currentPrice, placeOrder]);
+    setAlpacaError(null);
+
+    if (isAlpaca) {
+      try {
+        const lp = parseFloat(limitPrice) || undefined;
+        const sp = parseFloat(stopPrice) || undefined;
+        const filled = await submitAlpacaOrder({
+          symbol,
+          qty: sharesNum,
+          side,
+          type: orderType,
+          limit_price: lp,
+          stop_price: sp,
+          paper: isPaper,
+        });
+        if (filled.filled_avg_price) {
+          setLastFill({ side, shares: sharesNum, price: parseFloat(filled.filled_avg_price) });
+          setTimeout(() => setLastFill(null), 4000);
+        } else {
+          setLastFill({ side, shares: sharesNum, price: currentPrice });
+          setTimeout(() => setLastFill(null), 4000);
+        }
+      } catch (err: unknown) {
+        setAlpacaError(err instanceof Error ? err.message : 'Order failed');
+        setTimeout(() => setAlpacaError(null), 5000);
+      }
+    } else {
+      const lp = parseFloat(limitPrice) || undefined;
+      const sp = parseFloat(stopPrice) || undefined;
+      const order = placeOrder(symbol, side, orderType, sharesNum, currentPrice, lp, sp);
+      if (order.status === 'filled' && order.fillPrice) {
+        setLastFill({ side, shares: sharesNum, price: order.fillPrice });
+        setTimeout(() => setLastFill(null), 3000);
+      }
+    }
+  }, [symbol, side, orderType, sharesNum, limitPrice, stopPrice, currentPrice, placeOrder, isAlpaca, isPaper]);
 
   // Hotkeys
   useEffect(() => {
@@ -63,16 +96,34 @@ export default function OrderPanel({ symbol, currentPrice }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [showConfirm, handleExecute, openPosition, closePosition, symbol, currentPrice]);
 
-  const canTrade = tradeValue <= account.buyingPower && sharesNum > 0;
+  const canTrade = (isAlpaca || tradeValue <= account.buyingPower) && sharesNum > 0;
   const isOverRisk = pctRisk > 2;
 
   return (
     <div className="bg-[#161b22] border-t border-[#21262d] p-3 flex-shrink-0">
+      {/* Broker mode badge */}
+      {isAlpaca && (
+        <div className={`mb-2 px-2 py-1 rounded text-[10px] font-medium flex items-center gap-1.5 ${
+          isPaper ? 'bg-[#1f6feb]/15 text-[#79c0ff]' : 'bg-[#f85149]/15 text-[#f85149]'
+        }`}>
+          <Wifi size={10} />
+          {isPaper ? 'Alpaca Paper' : 'Alpaca Live'} — orders sent to real broker
+        </div>
+      )}
+
       {/* Fill notification */}
       {lastFill && (
         <div className={`mb-2 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 ${lastFill.side === 'buy' ? 'bg-[#3fb950]/20 text-[#3fb950]' : 'bg-[#f85149]/20 text-[#f85149]'}`}>
           <Zap size={12} />
-          Filled: {lastFill.side.toUpperCase()} {lastFill.shares} {symbol} @ ${lastFill.price.toFixed(2)}
+          {isAlpaca ? 'Submitted' : 'Filled'}: {lastFill.side.toUpperCase()} {lastFill.shares} {symbol} @ ${lastFill.price.toFixed(2)}
+        </div>
+      )}
+
+      {/* Alpaca error */}
+      {alpacaError && (
+        <div className="mb-2 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 bg-[#f85149]/20 text-[#f85149]">
+          <AlertTriangle size={12} />
+          {alpacaError}
         </div>
       )}
 

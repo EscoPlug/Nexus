@@ -13,6 +13,7 @@ import OrderPanel from './components/Trading/OrderPanel';
 import TradingDashboard from './components/Trading/TradingDashboard';
 import AlertPanel from './components/Trading/AlertPanel';
 import RiskManager from './components/Trading/RiskManager';
+import BrokerConnect from './components/Trading/BrokerConnect';
 import { TradingProvider } from './context/TradingContext';
 import { useChartData } from './hooks/useChartData';
 import { useLivePrice } from './hooks/useLivePrice';
@@ -20,7 +21,7 @@ import { useLiveTick } from './hooks/useLiveTick';
 import type { ChartType, Timeframe, ActiveIndicator, DrawingToolType, WatchlistItem } from './types';
 import { Activity, BarChart2, Star, Search, ShoppingCart, PieChart } from 'lucide-react';
 
-type RightTab = 'level2' | 'alerts' | 'risk';
+type RightTab = 'level2' | 'alerts' | 'risk' | 'broker';
 type LeftTab = 'watchlist' | 'scanner';
 type MobileView = 'chart' | 'watchlist' | 'scanner' | 'order' | 'dashboard';
 
@@ -280,7 +281,7 @@ function AppInner() {
       {simMode && (
         <div className="w-64 xl:w-72 flex-shrink-0 flex flex-col border-l border-[#21262d]">
           <div className="flex border-b border-[#21262d] flex-shrink-0">
-            {(['level2', 'alerts', 'risk'] as RightTab[]).map(tab => (
+            {(['level2', 'alerts', 'risk', 'broker'] as RightTab[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -288,7 +289,7 @@ function AppInner() {
                   rightTab === tab ? 'text-white border-b-2 border-[#1f6feb]' : 'text-[#8b949e] hover:text-white'
                 }`}
               >
-                {tab === 'level2' ? 'L2 / T&S' : tab === 'alerts' ? 'Alerts' : 'Risk'}
+                {tab === 'level2' ? 'L2/T&S' : tab === 'alerts' ? 'Alerts' : tab === 'risk' ? 'Risk' : 'Broker'}
               </button>
             ))}
           </div>
@@ -304,6 +305,7 @@ function AppInner() {
           )}
           {rightTab === 'alerts' && <AlertPanel symbol={symbol} currentPrice={currentPrice} />}
           {rightTab === 'risk' && <RiskManager />}
+          {rightTab === 'broker' && <BrokerConnect />}
         </div>
       )}
     </div>

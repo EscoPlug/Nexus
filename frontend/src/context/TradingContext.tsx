@@ -165,6 +165,8 @@ function buildDefaultRiskSettings(): RiskSettings {
 
 // ─── Persisted state shape ────────────────────────────────────────────────────
 
+export type BrokerMode = 'sim' | 'alpaca-paper' | 'alpaca-live';
+
 interface PersistedState {
   account: Account;
   positions: Position[];
@@ -175,6 +177,7 @@ interface PersistedState {
   equityHistory: EquityPoint[];
   /** Local-midnight timestamp for the session that last wrote dailyPnL. */
   dailyPnLDate: number;
+  brokerMode?: BrokerMode;
 }
 
 function loadState(): PersistedState | null {
@@ -248,6 +251,8 @@ interface TradingContextValue {
     Account,
     'winRate' | 'avgWin' | 'avgLoss' | 'profitFactor' | 'streak' | 'maxDrawdown'
   > & { totalTrades: number; wins: number; losses: number };
+  brokerMode: BrokerMode;
+  setBrokerMode: (mode: BrokerMode) => void;
 }
 
 const TradingContext = createContext<TradingContextValue | null>(null);
@@ -265,6 +270,11 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const [alerts, setAlerts] = useState<Alert[]>(init.alerts);
   const [riskSettings, setRiskSettings] = useState<RiskSettings>(init.riskSettings);
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>(init.equityHistory);
+  const [brokerMode, setBrokerModeState] = useState<BrokerMode>(init.brokerMode ?? 'sim');
+
+  const setBrokerMode = useCallback((mode: BrokerMode) => {
+    setBrokerModeState(mode);
+  }, []);
 
   /** Tracks which calendar day the current dailyPnL belongs to. */
   const dailyPnLDateRef = useRef<number>(init.dailyPnLDate);
@@ -294,13 +304,14 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       riskSettings,
       equityHistory,
       dailyPnLDate: dailyPnLDateRef.current,
+      brokerMode,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // Storage quota exceeded — silently ignore.
     }
-  }, [account, positions, orders, trades, alerts, riskSettings, equityHistory]);
+  }, [account, positions, orders, trades, alerts, riskSettings, equityHistory, brokerMode]);
 
   // ── Internal: record a completed trade and update account/equity ──────────
   /**
@@ -778,6 +789,8 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     updateRiskSettings,
     resetAccount,
     getStats,
+    brokerMode,
+    setBrokerMode,
   };
 
   return <TradingContext.Provider value={value}>{children}</TradingContext.Provider>;

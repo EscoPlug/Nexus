@@ -1,9 +1,12 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import marketRouter from './routes/market.js';
+import brokerRouter from './routes/broker.js';
 import { generateQuote } from './services/generator.js';
+import { isConfigured } from './services/alpacaClient.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,6 +14,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 app.use('/api', marketRouter);
+app.use('/api/broker', brokerRouter);
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'Nexus Backend' }));
 
 const server = createServer(app);
@@ -27,7 +31,6 @@ wss.on('connection', (ws) => {
       if (msg.type === 'subscribe' && Array.isArray(msg.symbols)) {
         const client = clients.get(id);
         if (client) client.symbols = msg.symbols;
-        // Send initial prices immediately
         sendPrices(ws, msg.symbols);
       }
     } catch {}
@@ -38,13 +41,19 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'connected', id }));
 });
 
+function broadcast(payload) {
+  const msg = JSON.stringify(payload);
+  for (const [, { ws }] of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+  }
+}
+
 function sendPrices(ws, symbols) {
-  if (ws.readyState !== 1) return;
+  if (ws.readyState !== WebSocket.OPEN) return;
   const update = {};
   symbols.forEach(sym => {
     const q = generateQuote(sym);
     if (q) {
-      // Add tiny jitter to simulate live movement
       const jitter = (Math.random() - 0.5) * 0.003;
       update[sym] = {
         price: parseFloat((q.price * (1 + jitter)).toFixed(4)),
@@ -68,6 +77,51 @@ setInterval(() => {
   }
 }, 3000);
 
+// ── Alpaca trade-update WebSocket ─────────────────────────────────────────────
+// If API keys are set, stream trade_updates from both paper and live accounts
+// and relay fills to all connected browser clients.
+function connectAlpacaStream(paper) {
+  if (!isConfigured()) return;
+  const url = paper
+    ? 'wss://paper-api.alpaca.markets/stream'
+    : 'wss://api.alpaca.markets/stream';
+
+  const ws = new WebSocket(url);
+
+  ws.on('open', () => {
+    ws.send(JSON.stringify({
+      action: 'authenticate',
+      data: { key_id: process.env.ALPACA_KEY_ID, secret_key: process.env.ALPACA_SECRET_KEY },
+    }));
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg.stream === 'authorization' && msg.data?.status === 'authorized') {
+        ws.send(JSON.stringify({ action: 'listen', data: { streams: ['trade_updates'] } }));
+        console.log(`\x1b[32m✦ Alpaca ${paper ? 'paper' : 'live'} stream connected\x1b[0m`);
+      }
+      if (msg.stream === 'trade_updates') {
+        broadcast({ type: 'broker_fill', data: msg.data, paper });
+      }
+    } catch {}
+  });
+
+  ws.on('close', () => {
+    // Reconnect after 10 seconds on unexpected disconnect
+    setTimeout(() => connectAlpacaStream(paper), 10_000);
+  });
+
+  ws.on('error', () => {}); // Handled by 'close'
+}
+
 server.listen(PORT, () => {
   console.log(`\x1b[36m✦ Nexus Backend\x1b[0m running on http://localhost:${PORT}`);
+  if (isConfigured()) {
+    connectAlpacaStream(true);  // paper
+    connectAlpacaStream(false); // live
+  } else {
+    console.log('\x1b[33m  Alpaca not configured — copy backend/.env.example to backend/.env and add your keys\x1b[0m');
+  }
 });
