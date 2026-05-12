@@ -59,6 +59,9 @@ export default function TopBar({
   const removeIndicator = (id: string) => {
     onIndicatorsChange(indicators.filter(i => i.id !== id));
   };
+  const updateIndicator = (id: string, params: Record<string, number | string | boolean>) => {
+    onIndicatorsChange(indicators.map(i => i.id === id ? { ...i, params } : i));
+  };
 
   return (
     <>
@@ -286,6 +289,7 @@ export default function TopBar({
           activeIndicators={indicators}
           onAdd={addIndicator}
           onRemove={removeIndicator}
+          onUpdate={updateIndicator}
           onClose={() => setShowIndicators(false)}
         />
       )}
