@@ -62,18 +62,18 @@ export default function TopBar({
 
   return (
     <>
-      <div className="flex items-center h-12 bg-[#161b22] border-b border-[#21262d] px-3 gap-3 select-none flex-shrink-0">
+      {/* ── Desktop top bar (single row) ───────────────────────────────────── */}
+      <div className="hidden md:flex items-center h-12 bg-[#161b22] border-b border-[#21262d] px-3 gap-3 select-none flex-shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-2 mr-1">
           <div className="w-6 h-6 rounded-md bg-gradient-to-br from-[#1f6feb] to-[#8957e5] flex items-center justify-center">
             <span className="text-white font-bold text-xs">N</span>
           </div>
-          <span className="text-white font-bold text-sm tracking-tight hidden md:block">NEXUS</span>
+          <span className="text-white font-bold text-sm tracking-tight">NEXUS</span>
         </div>
 
         <div className="h-5 w-px bg-[#21262d]" />
 
-        {/* Symbol button */}
         <button
           onClick={onSymbolSearch}
           className="flex items-center gap-2 px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] rounded-lg transition-colors group"
@@ -83,7 +83,6 @@ export default function TopBar({
           {loading && <span className="w-1.5 h-1.5 rounded-full bg-[#1f6feb] animate-pulse" />}
         </button>
 
-        {/* Quote info */}
         {quote && (
           <div className="flex items-center gap-3 text-xs">
             <span className="font-mono font-bold text-base" style={{ color: priceColor }}>
@@ -107,7 +106,6 @@ export default function TopBar({
 
         <div className="flex-1" />
 
-        {/* Timeframes */}
         <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5">
           {TIMEFRAMES.map(tf => (
             <button
@@ -126,7 +124,6 @@ export default function TopBar({
 
         <div className="h-5 w-px bg-[#21262d]" />
 
-        {/* Chart type */}
         <div className="relative">
           <button
             onClick={() => setShowChartMenu(!showChartMenu)}
@@ -153,13 +150,12 @@ export default function TopBar({
           )}
         </div>
 
-        {/* Indicators */}
         <button
           onClick={() => setShowIndicators(true)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded-lg transition-all text-xs"
         >
           <Activity size={14} />
-          <span className="hidden sm:inline">Indicators</span>
+          <span>Indicators</span>
           {indicators.length > 0 && (
             <span className="bg-[#1f6feb] text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
               {indicators.length}
@@ -169,19 +165,119 @@ export default function TopBar({
 
         <div className="h-5 w-px bg-[#21262d]" />
 
-        {/* Screenshot */}
         <button className="p-1.5 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded-lg transition-all" title="Screenshot">
           <Camera size={14} />
         </button>
-
-        {/* Settings */}
         <button className="p-1.5 text-[#8b949e] hover:text-white hover:bg-[#21262d] rounded-lg transition-all" title="Settings">
           <Settings size={14} />
         </button>
 
-        {/* Connection status */}
         <div className={`flex items-center gap-1 text-xs ${connected ? 'text-[#3fb950]' : 'text-[#8b949e]'}`}>
           {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
+        </div>
+      </div>
+
+      {/* ── Mobile top bar (two rows) ─────────────────────────────────────── */}
+      <div className="md:hidden flex-shrink-0 bg-[#161b22] border-b border-[#21262d] select-none">
+        {/* Row 1: logo + symbol + price + connection */}
+        <div className="flex items-center h-11 px-3 gap-2">
+          <div className="w-6 h-6 rounded-md bg-gradient-to-br from-[#1f6feb] to-[#8957e5] flex items-center justify-center flex-shrink-0">
+            <span className="text-white font-bold text-xs">N</span>
+          </div>
+
+          <button
+            onClick={onSymbolSearch}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#21262d] hover:bg-[#30363d] rounded-lg transition-colors group flex-shrink-0"
+          >
+            <Search size={12} className="text-[#8b949e]" />
+            <span className="text-white font-semibold text-sm">{symbol}</span>
+            {loading && <span className="w-1.5 h-1.5 rounded-full bg-[#1f6feb] animate-pulse" />}
+          </button>
+
+          {quote && (
+            <div className="flex items-center gap-2 text-xs min-w-0 overflow-hidden">
+              <span className="font-mono font-bold" style={{ color: priceColor }}>
+                {fmt(quote.price)}
+              </span>
+              <span className="text-[11px] truncate" style={{ color: priceColor }}>
+                {isUp ? '+' : ''}{fmt(quote.changePercent)}%
+              </span>
+            </div>
+          )}
+
+          <div className="flex-1" />
+
+          <div className={`flex-shrink-0 ${connected ? 'text-[#3fb950]' : 'text-[#8b949e]'}`}>
+            {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
+          </div>
+        </div>
+
+        {/* Row 2: timeframes (scroll) + chart type + indicators */}
+        <div className="flex items-center h-9 gap-0 border-t border-[#21262d]/50">
+          {/* Timeframe strip — horizontal scroll, hidden scrollbar */}
+          <div
+            className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto px-2"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {TIMEFRAMES.map(tf => (
+              <button
+                key={tf}
+                onClick={() => onTimeframeChange(tf)}
+                className={`flex-shrink-0 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  timeframe === tf
+                    ? 'bg-[#21262d] text-white'
+                    : 'text-[#8b949e] active:bg-[#21262d]/50'
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-5 w-px bg-[#21262d] flex-shrink-0" />
+
+          {/* Chart type */}
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setShowChartMenu(!showChartMenu)}
+              className="flex items-center gap-1 px-2.5 h-9 text-[#8b949e] active:bg-[#21262d] transition-all text-xs"
+            >
+              {CHART_TYPES.find(c => c.id === chartType)?.icon}
+              <ChevronDown size={11} />
+            </button>
+            {showChartMenu && (
+              <div className="absolute top-full right-0 mt-1 w-44 bg-[#161b22] border border-[#21262d] rounded-lg shadow-xl z-20 overflow-hidden">
+                {CHART_TYPES.map(ct => (
+                  <button
+                    key={ct.id}
+                    onClick={() => { onChartTypeChange(ct.id); setShowChartMenu(false); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-3 text-sm transition-colors ${
+                      chartType === ct.id ? 'bg-[#1f6feb]/20 text-[#79c0ff]' : 'text-[#c9d1d9] active:bg-[#21262d]'
+                    }`}
+                  >
+                    {ct.icon}
+                    {ct.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="h-5 w-px bg-[#21262d] flex-shrink-0" />
+
+          {/* Indicators */}
+          <button
+            onClick={() => setShowIndicators(true)}
+            className="flex items-center gap-1 px-2.5 h-9 text-[#8b949e] active:bg-[#21262d] transition-all text-xs flex-shrink-0"
+          >
+            <Activity size={13} />
+            <span>Ind</span>
+            {indicators.length > 0 && (
+              <span className="bg-[#1f6feb] text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {indicators.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 

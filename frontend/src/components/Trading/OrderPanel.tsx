@@ -265,8 +265,8 @@ export default function OrderPanel({ symbol, currentPrice }: Props) {
         )}
       </div>
 
-      {/* Hotkey bar */}
-      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-[#8b949e]">
+      {/* Hotkey bar — desktop only */}
+      <div className="hidden md:flex items-center gap-3 mt-1.5 text-[10px] text-[#8b949e]">
         <span className="bg-[#21262d] px-1.5 py-0.5 rounded">F1</span><span>Market Buy</span>
         <span className="bg-[#21262d] px-1.5 py-0.5 rounded">F2</span><span>Market Sell</span>
         <span className="bg-[#21262d] px-1.5 py-0.5 rounded">F3</span><span>Close Position</span>

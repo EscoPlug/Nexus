@@ -24,6 +24,7 @@ import { Activity, BarChart2, Star, Search, ShoppingCart, PieChart } from 'lucid
 type RightTab = 'level2' | 'alerts' | 'risk' | 'broker';
 type LeftTab = 'watchlist' | 'scanner';
 type MobileView = 'chart' | 'watchlist' | 'scanner' | 'order' | 'dashboard';
+type MobileOrderTab = 'order' | 'broker' | 'l2';
 
 function AppInner() {
   const [symbol, setSymbol] = useState('AAPL');
@@ -41,6 +42,7 @@ function AppInner() {
   const [mobileView, setMobileView] = useState<MobileView>('chart');
   const [clearDrawings, setClearDrawings] = useState(0);
   const [undoDrawing, setUndoDrawing] = useState(0);
+  const [mobileOrderTab, setMobileOrderTab] = useState<MobileOrderTab>('order');
 
   const { bars, quote, loading, dataSource } = useChartData(symbol, timeframe);
   const watchlistSymbols = useMemo(() => watchlist.map(w => w.symbol), [watchlist]);
@@ -111,11 +113,20 @@ function AppInner() {
     <div className="flex-1 min-h-0 overflow-hidden md:hidden flex flex-col">
       {/* Chart view */}
       <div className={`flex-1 min-h-0 flex-col ${mobileView === 'chart' ? 'flex' : 'hidden'}`}>
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 relative">
           <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />
           {chartArea}
+          {/* Quick-trade shortcut floating button */}
+          {simMode && (
+            <button
+              onClick={() => setMobileView('order')}
+              className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-2 bg-[#1f6feb] text-white text-xs font-semibold rounded-full shadow-lg active:bg-[#388bfd] transition-colors z-10"
+            >
+              <ShoppingCart size={13} />
+              Trade
+            </button>
+          )}
         </div>
-        {simMode && <OrderPanel symbol={symbol} currentPrice={currentPrice} />}
       </div>
 
       {/* Watchlist view */}
@@ -135,24 +146,52 @@ function AppInner() {
         <Scanner onSelectSymbol={handleSymbolSelect} />
       )}
 
-      {/* Order / sim panel view */}
+      {/* Order / broker view */}
       {mobileView === 'order' && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {simMode ? (
-            <div className="flex flex-col h-full">
-              <OrderPanel symbol={symbol} currentPrice={currentPrice} />
-              <div className="flex-1 min-h-0 grid grid-cols-2">
-                <Level2Panel symbol={symbol} currentPrice={currentPrice} />
-                <TimeAndSales symbol={symbol} currentPrice={currentPrice} />
+            <>
+              {/* Sub-tabs */}
+              <div className="flex border-b border-[#21262d] flex-shrink-0 bg-[#161b22]">
+                {(['order', 'broker', 'l2'] as MobileOrderTab[]).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setMobileOrderTab(tab)}
+                    className={`flex-1 py-2.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                      mobileOrderTab === tab
+                        ? 'text-white border-b-2 border-[#1f6feb]'
+                        : 'text-[#8b949e]'
+                    }`}
+                  >
+                    {tab === 'l2' ? 'L2 / T&S' : tab === 'broker' ? 'Broker' : 'Order'}
+                  </button>
+                ))}
               </div>
-            </div>
+
+              {mobileOrderTab === 'order' && (
+                <div className="flex-1 overflow-y-auto">
+                  <OrderPanel symbol={symbol} currentPrice={currentPrice} />
+                </div>
+              )}
+              {mobileOrderTab === 'broker' && <BrokerConnect />}
+              {mobileOrderTab === 'l2' && (
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <div className="overflow-hidden" style={{ flex: '0 0 55%' }}>
+                    <Level2Panel symbol={symbol} currentPrice={currentPrice} />
+                  </div>
+                  <div className="border-t border-[#21262d] overflow-hidden" style={{ flex: '0 0 45%' }}>
+                    <TimeAndSales symbol={symbol} currentPrice={currentPrice} />
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-[#8b949e] px-6 text-center">
+            <div className="flex flex-col items-center justify-center flex-1 gap-4 text-[#8b949e] px-6 text-center">
               <Activity size={32} className="opacity-30" />
-              <p className="text-sm">Enable Paper Trading Sim to access the order panel.</p>
+              <p className="text-sm">Enable Paper Trading Sim to access the order panel and broker settings.</p>
               <button
                 onClick={toggleSim}
-                className="px-4 py-2 bg-[#1f6feb] text-white text-sm font-semibold rounded-lg hover:bg-[#388bfd] transition-colors"
+                className="px-4 py-2.5 bg-[#1f6feb] text-white text-sm font-semibold rounded-lg active:bg-[#388bfd] transition-colors"
               >
                 Enable Sim Mode
               </button>
@@ -200,31 +239,35 @@ function AppInner() {
           <button
             key={view}
             onClick={() => setMobileView(view)}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors relative ${
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative ${
               active ? 'text-white' : isSim && !simMode ? 'text-[#484f58]' : 'text-[#8b949e]'
             }`}
           >
             {active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-[#1f6feb] rounded-b" />}
-            <Icon size={18} />
+            <div className="relative">
+              <Icon size={18} />
+              {isSim && simMode && (
+                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[#3fb950]" />
+              )}
+            </div>
             <span className="text-[9px] font-medium">{label}</span>
-            {isSim && simMode && (
-              <span className="absolute top-2 right-1/2 translate-x-3 w-1.5 h-1.5 rounded-full bg-[#3fb950]" />
-            )}
           </button>
         );
       })}
 
-      {/* Sim toggle button */}
+      {/* Sim toggle */}
       <button
         onClick={toggleSim}
-        className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors relative ${
+        className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative ${
           simMode ? 'text-[#1f6feb]' : 'text-[#8b949e]'
         }`}
       >
         {simMode && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-[#1f6feb] rounded-b" />}
-        <Activity size={18} />
+        <div className="relative">
+          <Activity size={18} />
+          {simMode && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse" />}
+        </div>
         <span className="text-[9px] font-medium">{simMode ? 'Sim ON' : 'Sim'}</span>
-        {simMode && <span className="absolute top-2 right-1/2 translate-x-3 w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse" />}
       </button>
     </nav>
   );
