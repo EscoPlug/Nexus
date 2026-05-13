@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import marketRouter from './routes/market.js';
 import brokerRouter from './routes/broker.js';
+import scannerRouter from './routes/scanner.js';
 import { generateQuote } from './services/generator.js';
 import { isConfigured } from './services/alpacaClient.js';
 
@@ -15,6 +16,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api', marketRouter);
 app.use('/api/broker', brokerRouter);
+app.use('/api/scanner', scannerRouter);
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'Nexus Backend' }));
 
 const server = createServer(app);

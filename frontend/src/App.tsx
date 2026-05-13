@@ -6,7 +6,7 @@ import Watchlist, { DEFAULT_WATCHLIST } from './components/Watchlist/Watchlist';
 import NewsPanel from './components/News/NewsPanel';
 import MarketTicker from './components/UI/MarketTicker';
 import SymbolSearch from './components/TopBar/SymbolSearch';
-import Scanner from './components/Trading/Scanner';
+import { Scanner } from './components/Trading/Scanner';
 import Level2Panel from './components/Trading/Level2Panel';
 import TimeAndSales from './components/Trading/TimeAndSales';
 import OrderPanel from './components/Trading/OrderPanel';

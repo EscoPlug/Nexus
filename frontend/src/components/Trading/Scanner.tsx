@@ -1,5 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { RefreshCw, SlidersHorizontal, X, Newspaper } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCw, SlidersHorizontal, X, Newspaper, Wifi } from 'lucide-react';
+import { fetchLiveScannerData } from '../../api/scanner';
+import type { LiveScanRow } from '../../api/scanner';
 
 interface Props {
   onSelectSymbol: (symbol: string, name: string) => void;
@@ -14,53 +16,157 @@ interface SymbolMeta {
 }
 
 const SYMBOLS: SymbolMeta[] = [
-  { symbol: 'AAPL',  name: 'Apple Inc.',               sector: 'Tech' },
-  { symbol: 'MSFT',  name: 'Microsoft Corp.',           sector: 'Tech' },
-  { symbol: 'NVDA',  name: 'NVIDIA Corp.',              sector: 'Tech' },
-  { symbol: 'TSLA',  name: 'Tesla Inc.',                sector: 'EV' },
-  { symbol: 'META',  name: 'Meta Platforms',            sector: 'Tech' },
-  { symbol: 'AMD',   name: 'Advanced Micro Devices',    sector: 'Tech' },
-  { symbol: 'NFLX',  name: 'Netflix Inc.',              sector: 'Tech' },
-  { symbol: 'GME',   name: 'GameStop Corp.',            sector: 'Retail' },
-  { symbol: 'AMC',   name: 'AMC Entertainment',         sector: 'Media' },
-  { symbol: 'BBBY',  name: 'Bed Bath & Beyond',         sector: 'Retail' },
-  { symbol: 'MULN',  name: 'Mullen Automotive',         sector: 'EV' },
-  { symbol: 'FFIE',  name: 'Faraday Future',            sector: 'EV' },
-  { symbol: 'SOFI',  name: 'SoFi Technologies',         sector: 'Finance' },
-  { symbol: 'LCID',  name: 'Lucid Group',               sector: 'EV' },
-  { symbol: 'RIVN',  name: 'Rivian Automotive',         sector: 'EV' },
-  { symbol: 'PLTR',  name: 'Palantir Technologies',     sector: 'Tech' },
-  { symbol: 'COIN',  name: 'Coinbase Global',           sector: 'Crypto' },
-  { symbol: 'HOOD',  name: 'Robinhood Markets',         sector: 'Finance' },
-  { symbol: 'MARA',  name: 'Marathon Digital',          sector: 'Crypto' },
-  { symbol: 'RIOT',  name: 'Riot Platforms',            sector: 'Crypto' },
-  { symbol: 'SNDL',  name: 'Sundial Growers',           sector: 'Cannabis' },
-  { symbol: 'CLOV',  name: 'Clover Health',             sector: 'Health' },
-  { symbol: 'WISH',  name: 'ContextLogic Inc.',         sector: 'Retail' },
-  { symbol: 'BB',    name: 'BlackBerry Ltd.',           sector: 'Tech' },
-  { symbol: 'NOK',   name: 'Nokia Corp.',               sector: 'Tech' },
-  { symbol: 'SPCE',  name: 'Virgin Galactic',           sector: 'Aero' },
-  { symbol: 'BYND',  name: 'Beyond Meat',               sector: 'Food' },
-  { symbol: 'WKHS',  name: 'Workhorse Group',           sector: 'EV' },
-  { symbol: 'NKLA',  name: 'Nikola Corp.',              sector: 'EV' },
-  { symbol: 'SENS',  name: 'Senseonics Holdings',       sector: 'Health' },
-  { symbol: 'IONQ',  name: 'IonQ Inc.',                 sector: 'Tech' },
-  { symbol: 'RKLB',  name: 'Rocket Lab USA',            sector: 'Aero' },
-  { symbol: 'OPEN',  name: 'Opendoor Technologies',     sector: 'Finance' },
-  { symbol: 'CTRM',  name: 'Castor Maritime',           sector: 'Energy' },
-  { symbol: 'TLRY',  name: 'Tilray Brands',             sector: 'Cannabis' },
-  { symbol: 'ATOS',  name: 'Atossa Therapeutics',       sector: 'Health' },
-  { symbol: 'IDEX',  name: 'Ideanomics Inc.',           sector: 'EV' },
-  { symbol: 'NAKD',  name: 'Naked Brand Group',         sector: 'Retail' },
-  { symbol: 'EXPR',  name: 'Express Inc.',              sector: 'Retail' },
-  { symbol: 'KOSS',  name: 'Koss Corp.',                sector: 'Tech' },
+  // ── Tech ──────────────────────────────────────────────────────────────────
+  { symbol: 'AAPL',  name: 'Apple Inc.',                    sector: 'Tech' },
+  { symbol: 'MSFT',  name: 'Microsoft Corp.',               sector: 'Tech' },
+  { symbol: 'NVDA',  name: 'NVIDIA Corp.',                  sector: 'Tech' },
+  { symbol: 'META',  name: 'Meta Platforms',                sector: 'Tech' },
+  { symbol: 'GOOGL', name: 'Alphabet Inc.',                 sector: 'Tech' },
+  { symbol: 'AMZN',  name: 'Amazon.com Inc.',               sector: 'Tech' },
+  { symbol: 'TSLA',  name: 'Tesla Inc.',                    sector: 'Tech' },
+  { symbol: 'AMD',   name: 'Advanced Micro Devices',        sector: 'Tech' },
+  { symbol: 'NFLX',  name: 'Netflix Inc.',                  sector: 'Tech' },
+  { symbol: 'CRM',   name: 'Salesforce Inc.',               sector: 'Tech' },
+  { symbol: 'ORCL',  name: 'Oracle Corp.',                  sector: 'Tech' },
+  { symbol: 'ADBE',  name: 'Adobe Inc.',                    sector: 'Tech' },
+  { symbol: 'INTC',  name: 'Intel Corp.',                   sector: 'Tech' },
+  { symbol: 'QCOM',  name: 'Qualcomm Inc.',                 sector: 'Tech' },
+  { symbol: 'TXN',   name: 'Texas Instruments',             sector: 'Tech' },
+  { symbol: 'AVGO',  name: 'Broadcom Inc.',                 sector: 'Tech' },
+  { symbol: 'AMAT',  name: 'Applied Materials',             sector: 'Tech' },
+  { symbol: 'MU',    name: 'Micron Technology',             sector: 'Tech' },
+  { symbol: 'LRCX',  name: 'Lam Research Corp.',            sector: 'Tech' },
+  { symbol: 'MRVL',  name: 'Marvell Technology',            sector: 'Tech' },
+  { symbol: 'ON',    name: 'ON Semiconductor',              sector: 'Tech' },
+  { symbol: 'NXPI',  name: 'NXP Semiconductors',            sector: 'Tech' },
+  { symbol: 'FTNT',  name: 'Fortinet Inc.',                 sector: 'Tech' },
+  { symbol: 'PANW',  name: 'Palo Alto Networks',            sector: 'Tech' },
+  { symbol: 'CRWD',  name: 'CrowdStrike Holdings',          sector: 'Tech' },
+  { symbol: 'NET',   name: 'Cloudflare Inc.',               sector: 'Tech' },
+  { symbol: 'ZS',    name: 'Zscaler Inc.',                  sector: 'Tech' },
+  { symbol: 'DDOG',  name: 'Datadog Inc.',                  sector: 'Tech' },
+  { symbol: 'SNOW',  name: 'Snowflake Inc.',                sector: 'Tech' },
+  { symbol: 'MDB',   name: 'MongoDB Inc.',                  sector: 'Tech' },
+  { symbol: 'PLTR',  name: 'Palantir Technologies',         sector: 'Tech' },
+  { symbol: 'RBLX',  name: 'Roblox Corp.',                  sector: 'Tech' },
+  { symbol: 'U',     name: 'Unity Software',                sector: 'Tech' },
+  { symbol: 'IONQ',  name: 'IonQ Inc.',                     sector: 'Tech' },
+  { symbol: 'BB',    name: 'BlackBerry Ltd.',               sector: 'Tech' },
+  { symbol: 'NOK',   name: 'Nokia Corp.',                   sector: 'Tech' },
+  { symbol: 'KOSS',  name: 'Koss Corp.',                    sector: 'Tech' },
+  // ── Finance ───────────────────────────────────────────────────────────────
+  { symbol: 'JPM',   name: 'JPMorgan Chase & Co.',          sector: 'Finance' },
+  { symbol: 'BAC',   name: 'Bank of America Corp.',         sector: 'Finance' },
+  { symbol: 'WFC',   name: 'Wells Fargo & Co.',             sector: 'Finance' },
+  { symbol: 'GS',    name: 'Goldman Sachs Group',           sector: 'Finance' },
+  { symbol: 'MS',    name: 'Morgan Stanley',                sector: 'Finance' },
+  { symbol: 'C',     name: 'Citigroup Inc.',                sector: 'Finance' },
+  { symbol: 'BLK',   name: 'BlackRock Inc.',                sector: 'Finance' },
+  { symbol: 'SCHW',  name: 'Charles Schwab Corp.',          sector: 'Finance' },
+  { symbol: 'AXP',   name: 'American Express Co.',          sector: 'Finance' },
+  { symbol: 'V',     name: 'Visa Inc.',                     sector: 'Finance' },
+  { symbol: 'MA',    name: 'Mastercard Inc.',               sector: 'Finance' },
+  { symbol: 'PYPL',  name: 'PayPal Holdings',               sector: 'Finance' },
+  { symbol: 'COIN',  name: 'Coinbase Global',               sector: 'Crypto' },
+  { symbol: 'HOOD',  name: 'Robinhood Markets',             sector: 'Finance' },
+  { symbol: 'SOFI',  name: 'SoFi Technologies',             sector: 'Finance' },
+  { symbol: 'OPEN',  name: 'Opendoor Technologies',         sector: 'Finance' },
+  // ── Healthcare ────────────────────────────────────────────────────────────
+  { symbol: 'UNH',   name: 'UnitedHealth Group',            sector: 'Health' },
+  { symbol: 'JNJ',   name: 'Johnson & Johnson',             sector: 'Health' },
+  { symbol: 'LLY',   name: 'Eli Lilly and Co.',             sector: 'Health' },
+  { symbol: 'PFE',   name: 'Pfizer Inc.',                   sector: 'Health' },
+  { symbol: 'MRK',   name: 'Merck & Co.',                   sector: 'Health' },
+  { symbol: 'ABBV',  name: 'AbbVie Inc.',                   sector: 'Health' },
+  { symbol: 'TMO',   name: 'Thermo Fisher Scientific',      sector: 'Health' },
+  { symbol: 'ABT',   name: 'Abbott Laboratories',           sector: 'Health' },
+  { symbol: 'AMGN',  name: 'Amgen Inc.',                    sector: 'Health' },
+  { symbol: 'GILD',  name: 'Gilead Sciences',               sector: 'Health' },
+  { symbol: 'REGN',  name: 'Regeneron Pharmaceuticals',     sector: 'Health' },
+  { symbol: 'VRTX',  name: 'Vertex Pharmaceuticals',        sector: 'Health' },
+  { symbol: 'MRNA',  name: 'Moderna Inc.',                  sector: 'Health' },
+  { symbol: 'BIIB',  name: 'Biogen Inc.',                   sector: 'Health' },
+  { symbol: 'CLOV',  name: 'Clover Health',                 sector: 'Health' },
+  { symbol: 'SENS',  name: 'Senseonics Holdings',           sector: 'Health' },
+  { symbol: 'ATOS',  name: 'Atossa Therapeutics',           sector: 'Health' },
+  // ── Energy ────────────────────────────────────────────────────────────────
+  { symbol: 'XOM',   name: 'Exxon Mobil Corp.',             sector: 'Energy' },
+  { symbol: 'CVX',   name: 'Chevron Corp.',                 sector: 'Energy' },
+  { symbol: 'COP',   name: 'ConocoPhillips',                sector: 'Energy' },
+  { symbol: 'OXY',   name: 'Occidental Petroleum',          sector: 'Energy' },
+  { symbol: 'EOG',   name: 'EOG Resources',                 sector: 'Energy' },
+  { symbol: 'DVN',   name: 'Devon Energy Corp.',            sector: 'Energy' },
+  { symbol: 'BKR',   name: 'Baker Hughes Co.',              sector: 'Energy' },
+  { symbol: 'HAL',   name: 'Halliburton Co.',               sector: 'Energy' },
+  { symbol: 'SLB',   name: 'SLB (Schlumberger)',            sector: 'Energy' },
+  { symbol: 'PSX',   name: 'Phillips 66',                   sector: 'Energy' },
+  { symbol: 'CTRM',  name: 'Castor Maritime',               sector: 'Energy' },
+  // ── Consumer / Retail ─────────────────────────────────────────────────────
+  { symbol: 'WMT',   name: 'Walmart Inc.',                  sector: 'Retail' },
+  { symbol: 'COST',  name: 'Costco Wholesale',              sector: 'Retail' },
+  { symbol: 'TGT',   name: 'Target Corp.',                  sector: 'Retail' },
+  { symbol: 'HD',    name: 'Home Depot Inc.',               sector: 'Retail' },
+  { symbol: 'LOW',   name: "Lowe's Companies",              sector: 'Retail' },
+  { symbol: 'NKE',   name: 'NIKE Inc.',                     sector: 'Retail' },
+  { symbol: 'MCD',   name: "McDonald's Corp.",              sector: 'Retail' },
+  { symbol: 'SBUX',  name: 'Starbucks Corp.',               sector: 'Retail' },
+  { symbol: 'CMG',   name: 'Chipotle Mexican Grill',        sector: 'Retail' },
+  { symbol: 'GME',   name: 'GameStop Corp.',                sector: 'Retail' },
+  { symbol: 'AMC',   name: 'AMC Entertainment',             sector: 'Media' },
+  { symbol: 'BBBY',  name: 'Bed Bath & Beyond',             sector: 'Retail' },
+  { symbol: 'EXPR',  name: 'Express Inc.',                  sector: 'Retail' },
+  { symbol: 'NAKD',  name: 'Naked Brand Group',             sector: 'Retail' },
+  { symbol: 'WISH',  name: 'ContextLogic Inc.',             sector: 'Retail' },
+  // ── Industrial / Aerospace ────────────────────────────────────────────────
+  { symbol: 'GE',    name: 'GE Aerospace',                  sector: 'Industrial' },
+  { symbol: 'HON',   name: 'Honeywell International',       sector: 'Industrial' },
+  { symbol: 'BA',    name: 'Boeing Co.',                    sector: 'Industrial' },
+  { symbol: 'CAT',   name: 'Caterpillar Inc.',              sector: 'Industrial' },
+  { symbol: 'DE',    name: 'Deere & Company',               sector: 'Industrial' },
+  { symbol: 'UNP',   name: 'Union Pacific Corp.',           sector: 'Industrial' },
+  { symbol: 'UPS',   name: 'United Parcel Service',         sector: 'Industrial' },
+  { symbol: 'FDX',   name: 'FedEx Corp.',                   sector: 'Industrial' },
+  { symbol: 'LMT',   name: 'Lockheed Martin Corp.',         sector: 'Industrial' },
+  { symbol: 'RTX',   name: 'RTX Corp.',                     sector: 'Industrial' },
+  { symbol: 'GD',    name: 'General Dynamics Corp.',        sector: 'Industrial' },
+  { symbol: 'RKLB',  name: 'Rocket Lab USA',                sector: 'Aero' },
+  { symbol: 'SPCE',  name: 'Virgin Galactic',               sector: 'Aero' },
+  // ── EV ────────────────────────────────────────────────────────────────────
+  { symbol: 'LCID',  name: 'Lucid Group',                   sector: 'EV' },
+  { symbol: 'RIVN',  name: 'Rivian Automotive',             sector: 'EV' },
+  { symbol: 'NIO',   name: 'NIO Inc.',                      sector: 'EV' },
+  { symbol: 'XPEV',  name: 'XPeng Inc.',                    sector: 'EV' },
+  { symbol: 'LI',    name: 'Li Auto Inc.',                  sector: 'EV' },
+  { symbol: 'MULN',  name: 'Mullen Automotive',             sector: 'EV' },
+  { symbol: 'FFIE',  name: 'Faraday Future',                sector: 'EV' },
+  { symbol: 'WKHS',  name: 'Workhorse Group',               sector: 'EV' },
+  { symbol: 'NKLA',  name: 'Nikola Corp.',                  sector: 'EV' },
+  { symbol: 'IDEX',  name: 'Ideanomics Inc.',               sector: 'EV' },
+  // ── Crypto-adjacent ───────────────────────────────────────────────────────
+  { symbol: 'MARA',  name: 'Marathon Digital',              sector: 'Crypto' },
+  { symbol: 'RIOT',  name: 'Riot Platforms',                sector: 'Crypto' },
+  // ── Cannabis ──────────────────────────────────────────────────────────────
+  { symbol: 'SNDL',  name: 'Sundial Growers',               sector: 'Cannabis' },
+  { symbol: 'TLRY',  name: 'Tilray Brands',                 sector: 'Cannabis' },
+  // ── Food / Beverage ───────────────────────────────────────────────────────
+  { symbol: 'KO',    name: 'The Coca-Cola Company',         sector: 'Food' },
+  { symbol: 'PEP',   name: 'PepsiCo Inc.',                  sector: 'Food' },
+  { symbol: 'BYND',  name: 'Beyond Meat',                   sector: 'Food' },
+  { symbol: 'MO',    name: 'Altria Group',                  sector: 'Food' },
+  // ── Media / Telecom ───────────────────────────────────────────────────────
+  { symbol: 'DIS',   name: 'The Walt Disney Co.',           sector: 'Media' },
+  { symbol: 'PARA',  name: 'Paramount Global',              sector: 'Media' },
+  { symbol: 'WBD',   name: 'Warner Bros. Discovery',        sector: 'Media' },
+  { symbol: 'T',     name: 'AT&T Inc.',                     sector: 'Telecom' },
+  { symbol: 'VZ',    name: 'Verizon Communications',        sector: 'Telecom' },
+  { symbol: 'TMUS',  name: 'T-Mobile US',                   sector: 'Telecom' },
 ];
 
 const TABS: Tab[] = ['Gainers', 'Losers', 'Volume', 'Momentum', 'Gappers'];
 
 const ALL_SECTORS = Array.from(new Set(SYMBOLS.map(s => s.sector))).sort();
 
-// ── PRNG helpers ────────────────────────────────────────────────────────────
+// ── PRNG helpers ─────────────────────────────────────────────────────────────
 
 function strHash(s: string): number {
   let h = 0;
@@ -79,7 +185,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-// ── Data types ───────────────────────────────────────────────────────────────
+// ── Data types ────────────────────────────────────────────────────────────────
 
 interface ScanRow {
   symbol: string;
@@ -191,6 +297,7 @@ function formatVolume(v: number): string {
 }
 
 function formatFloat(f: number): string {
+  if (f <= 0) return '—';
   if (f >= 100) return Math.round(f) + 'M';
   return f.toFixed(1) + 'M';
 }
@@ -213,33 +320,73 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [hoveredNews, setHoveredNews] = useState<string | null>(null);
 
-  const allRows = useMemo(() => generateRows(seed), [seed]);
+  // Live data state
+  const [liveRows, setLiveRows] = useState<LiveScanRow[] | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const tabRows = useMemo((): ScanRow[] => {
+  const allSimRows = useMemo(() => generateRows(seed), [seed]);
+
+  const simTabRows = useMemo((): ScanRow[] => {
     switch (activeTab) {
       case 'Gainers':
-        return [...allRows].filter(r => r.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent);
+        return [...allSimRows].filter(r => r.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent);
       case 'Losers':
-        return [...allRows].filter(r => r.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent);
+        return [...allSimRows].filter(r => r.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent);
       case 'Volume':
-        return [...allRows].sort((a, b) => b.volume - a.volume);
+        return [...allSimRows].sort((a, b) => b.volume - a.volume);
       case 'Momentum':
-        return [...allRows].filter(r => r.changePercent > 10 && r.relVolume > 3).sort((a, b) => b.changePercent - a.changePercent);
+        return [...allSimRows].filter(r => r.changePercent > 10 && r.relVolume > 3).sort((a, b) => b.changePercent - a.changePercent);
       case 'Gappers':
-        return [...allRows].filter(r => Math.abs(r.gapPercent) > 2).sort((a, b) => Math.abs(b.gapPercent) - Math.abs(a.gapPercent));
+        return [...allSimRows].filter(r => Math.abs(r.gapPercent) > 2).sort((a, b) => Math.abs(b.gapPercent) - Math.abs(a.gapPercent));
       default:
-        return allRows;
+        return allSimRows;
     }
-  }, [allRows, activeTab]);
+  }, [allSimRows, activeTab]);
 
+  const tabRows: ScanRow[] = liveRows ?? simTabRows;
   const visibleRows = useMemo(() => applyFilters(tabRows, filters), [tabRows, filters]);
-
   const activeFilterCount = countActiveFilters(filters);
+
+  const fetchLive = useCallback(async (tab: Tab) => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    setLoading(true);
+    try {
+      const result = await fetchLiveScannerData(tab.toLowerCase());
+      if (result.source === 'live') {
+        setLiveRows(result.rows);
+        setIsLive(true);
+        setScanTime(new Date(result.lastUpdated ?? Date.now()));
+      } else {
+        setLiveRows(null);
+        setIsLive(false);
+      }
+    } catch {
+      setLiveRows(null);
+      setIsLive(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch on mount and tab change
+  useEffect(() => {
+    fetchLive(activeTab);
+    return () => { abortRef.current?.abort(); };
+  }, [activeTab, fetchLive]);
 
   const handleRefresh = useCallback(() => {
     setSeed(dailySeed() ^ (Date.now() & 0xffff));
-    setScanTime(new Date());
-  }, []);
+    fetchLive(activeTab);
+    if (!isLive) setScanTime(new Date());
+  }, [activeTab, fetchLive, isLive]);
+
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    setLiveRows(null);
+  };
 
   const setFilter = (key: keyof Filters, value: string | boolean) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -253,7 +400,18 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
     <div className="flex flex-col h-full text-xs select-none bg-[#0d1117] text-[#c9d1d9]">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#21262d] bg-[#161b22] flex-shrink-0">
-        <span className="font-semibold text-sm">Scanner</span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm">Scanner</span>
+          {isLive && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-[#3fb950]/15 border border-[#3fb950]/40 rounded text-[9px] font-bold text-[#3fb950] uppercase tracking-wide">
+              <Wifi size={8} />
+              Live
+            </span>
+          )}
+          {loading && (
+            <span className="text-[#8b949e] text-[10px] animate-pulse">loading…</span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-[#8b949e] text-[10px]">{formatScanTime(scanTime)}</span>
           <button
@@ -274,9 +432,10 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
           </button>
           <button
             onClick={handleRefresh}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-[#1f6feb] text-white hover:bg-[#388bfd] transition-colors"
+            disabled={loading}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-[#1f6feb] text-white hover:bg-[#388bfd] transition-colors disabled:opacity-50"
           >
-            <RefreshCw size={10} />
+            <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
             Scan
           </button>
         </div>
@@ -382,6 +541,7 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
 
             <span className="text-[#8b949e] text-[10px] ml-auto">
               {visibleRows.length} / {tabRows.length} results
+              {isLive && <span className="ml-1 text-[#3fb950]">· NYSE/NASDAQ</span>}
             </span>
           </div>
         </div>
@@ -392,7 +552,7 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
         {TABS.map(tab => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => handleTabChange(tab)}
             className={`px-3 py-2 text-[11px] font-medium whitespace-nowrap border-b-2 transition-colors ${
               tab === activeTab
                 ? 'border-[#1f6feb] text-[#c9d1d9]'
@@ -424,7 +584,13 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
 
       {/* Rows */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
-        {visibleRows.length === 0 && (
+        {loading && tabRows.length === 0 && (
+          <div className="px-3 py-8 text-center text-[#8b949e]">
+            Fetching NYSE/NASDAQ data…
+          </div>
+        )}
+
+        {!loading && visibleRows.length === 0 && (
           <div className="px-3 py-8 text-center text-[#8b949e]">
             {activeFilterCount > 0 ? 'No results match your filters.' : 'No results for this scan.'}
           </div>
@@ -460,7 +626,7 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
                     </button>
                   )}
                 </div>
-                <span className="truncate text-[10px] text-[#8b949e]">{row.sector}</span>
+                <span className="truncate text-[10px] text-[#8b949e]">{row.sector || row.name}</span>
               </div>
 
               {/* Price */}
@@ -519,5 +685,3 @@ export const Scanner: React.FC<Props> = ({ onSelectSymbol }) => {
     </div>
   );
 };
-
-export default Scanner;
