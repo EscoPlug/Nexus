@@ -715,15 +715,18 @@ export default function NexusChart({ bars, timeframe, chartType, indicators, dra
     buildOverlayIndicators(chart, activeBars);
     buildSubChartIndicators(activeBars);
 
-    // Show the appropriate default viewport instead of fitting all bars.
+    // fitContent first so the chart knows the full data range, then immediately
+    // zoom in to the desired viewport. Use setTimeout(0) to let lightweight-charts
+    // finish its own internal layout before we override the range.
+    chart.timeScale().fitContent();
     const vis = timeframe ? (VISIBLE_BARS[timeframe] ?? bars.length) : bars.length;
     if (bars.length > vis) {
-      chart.timeScale().setVisibleLogicalRange({
-        from: bars.length - vis - 1,
-        to: bars.length,
-      });
-    } else {
-      chart.timeScale().fitContent();
+      setTimeout(() => {
+        chart.timeScale().setVisibleLogicalRange({
+          from: bars.length - vis - 1,
+          to: bars.length,
+        });
+      }, 0);
     }
   }, [bars, timeframe, chartType, buildOverlayIndicators, buildSubChartIndicators]);
 
