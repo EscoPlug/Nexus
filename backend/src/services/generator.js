@@ -86,13 +86,13 @@ const INTERVAL_SECONDS = {
 };
 
 const RANGE_BARS = {
-  '1m': 390,     // 1 trading day
-  '5m': 390,     // ~1 week
-  '15m': 500,    // ~1 month
-  '30m': 500,    // ~2 months
-  '1h': 500,     // ~3 months
+  '1m': 780,     // 2 days (scrollback beyond 1-day viewport)
+  '5m': 390,     // ~1 week for scrollback
+  '15m': 520,    // ~2 months for scrollback
+  '30m': 500,    // ~4 months
+  '1h': 500,     // ~6 months
   '4h': 500,     // ~6 months
-  '1D': 504,     // 2 years
+  '1D': 252,     // 1 year
   '1W': 104,     // 2 years
   '1M': 36,      // 3 years
 };

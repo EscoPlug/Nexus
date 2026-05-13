@@ -52,8 +52,23 @@ const CHART_BORDER = '#21262d';
 const UP_COLOR = '#26a69a';
 const DOWN_COLOR = '#ef5350';
 
+// How many bars to show in the initial viewport per timeframe.
+// Data beyond this is still loaded so the user can scroll back.
+const VISIBLE_BARS: Record<string, number> = {
+  '1m':  390,  // 1 trading day
+  '5m':  78,   // 1 trading day
+  '15m': 26,   // 1 trading day
+  '30m': 13,   // 1 trading day
+  '1h':  35,   // 1 week
+  '4h':  30,   // ~1 month
+  '1D':  5,    // 1 week
+  '1W':  52,   // 1 year
+  '1M':  24,   // 2 years
+};
+
 interface Props {
   bars: OHLCVBar[];
+  timeframe?: string;
   chartType: ChartType;
   indicators: ActiveIndicator[];
   drawingTool: DrawingToolType;
@@ -81,7 +96,7 @@ function toLineData(bars: OHLCVBar[], values: (number | null)[]) {
     .filter(d => d.value !== null) as { time: UTCTimestamp; value: number }[];
 }
 
-export default function NexusChart({ bars, chartType, indicators, drawingTool, clearDrawings, undoDrawing, liveTick, onCrosshairMove }: Props) {
+export default function NexusChart({ bars, timeframe, chartType, indicators, drawingTool, clearDrawings, undoDrawing, liveTick, onCrosshairMove }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainChartRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | ISeriesApi<'Bar'> | null>(null);
@@ -699,8 +714,18 @@ export default function NexusChart({ bars, chartType, indicators, drawingTool, c
     mainSeriesRef.current = series as ISeriesApi<'Candlestick'>;
     buildOverlayIndicators(chart, activeBars);
     buildSubChartIndicators(activeBars);
-    chart.timeScale().fitContent();
-  }, [bars, chartType, buildOverlayIndicators, buildSubChartIndicators]);
+
+    // Show the appropriate default viewport instead of fitting all bars.
+    const vis = timeframe ? (VISIBLE_BARS[timeframe] ?? bars.length) : bars.length;
+    if (bars.length > vis) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: bars.length - vis - 1,
+        to: bars.length,
+      });
+    } else {
+      chart.timeScale().fitContent();
+    }
+  }, [bars, timeframe, chartType, buildOverlayIndicators, buildSubChartIndicators]);
 
   useEffect(() => {
     if (!mainChartRef.current || bars.length === 0) return;

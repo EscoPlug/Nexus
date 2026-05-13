@@ -82,8 +82,15 @@ const INTERVAL_SECONDS: Record<string, number> = {
 };
 
 const RANGE_BARS: Record<string, number> = {
-  '1m': 390, '5m': 390, '15m': 500, '30m': 500,
-  '1h': 500, '4h': 500, '1D': 504, '1W': 104, '1M': 36,
+  '1m': 780,   // 2 trading days for scrollback
+  '5m': 390,   // ~1 week for scrollback
+  '15m': 520,  // ~2 months for scrollback
+  '30m': 500,  // ~4 months
+  '1h': 500,   // ~6 months
+  '4h': 500,
+  '1D': 252,   // 1 year (reduced from 2)
+  '1W': 104,
+  '1M': 36,
 };
 
 function getProfile(symbol: string): Profile {
