@@ -3,11 +3,17 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import marketRouter from './routes/market.js';
 import brokerRouter from './routes/broker.js';
 import scannerRouter from './routes/scanner.js';
 import { generateQuote } from './services/generator.js';
 import { isConfigured } from './services/alpacaClient.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DIST = join(__dirname, '../../frontend/dist');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -18,6 +24,13 @@ app.use('/api', marketRouter);
 app.use('/api/broker', brokerRouter);
 app.use('/api/scanner', scannerRouter);
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'Nexus Backend' }));
+
+// Serve the built frontend if the dist directory exists
+if (existsSync(DIST)) {
+  app.use(express.static(DIST));
+  // SPA fallback — let React Router handle all non-API routes
+  app.get('*', (_, res) => res.sendFile(join(DIST, 'index.html')));
+}
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
