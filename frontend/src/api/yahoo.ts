@@ -9,8 +9,15 @@ const INTERVAL_MAP: Record<string, string> = {
   '1h': '60m', '4h': '1h', '1D': '1d', '1W': '1wk', '1M': '1mo',
 };
 const RANGE_MAP: Record<string, string> = {
-  '1m': '1d', '5m': '5d', '15m': '1mo', '30m': '1mo',
-  '1h': '3mo', '4h': '6mo', '1D': '2y', '1W': '5y', '1M': 'max',
+  '1m': '1d',   // 1 trading day
+  '5m': '1d',   // 1 trading day
+  '15m': '1d',  // 1 trading day
+  '30m': '1d',  // 1 trading day
+  '1h': '5d',   // 1 week
+  '4h': '1mo',  // 1 month
+  '1D': '5d',   // 1 week of daily bars
+  '1W': '6mo',  // 6 months
+  '1M': '2y',   // 2 years
 };
 
 async function yfGet(path: string, useProxy = false): Promise<unknown> {
