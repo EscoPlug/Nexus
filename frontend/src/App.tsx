@@ -19,7 +19,8 @@ import { useChartData } from './hooks/useChartData';
 import { useLivePrice } from './hooks/useLivePrice';
 import { useLiveTick } from './hooks/useLiveTick';
 import type { ChartType, Timeframe, ActiveIndicator, DrawingToolType, WatchlistItem } from './types';
-import { Activity, BarChart2, Star, Search, ShoppingCart, PieChart } from 'lucide-react';
+import { Activity, BarChart2, Star, Search, ShoppingCart, PieChart, LayoutGrid } from 'lucide-react';
+import MultiChart from './components/Chart/MultiChart';
 
 type RightTab = 'level2' | 'alerts' | 'risk' | 'broker';
 type LeftTab = 'watchlist' | 'scanner';
@@ -43,6 +44,7 @@ function AppInner() {
   const [clearDrawings, setClearDrawings] = useState(0);
   const [undoDrawing, setUndoDrawing] = useState(0);
   const [mobileOrderTab, setMobileOrderTab] = useState<MobileOrderTab>('order');
+  const [multiChartMode, setMultiChartMode] = useState(false);
 
   const { bars, quote, loading, dataSource } = useChartData(symbol, timeframe);
   const watchlistSymbols = useMemo(() => watchlist.map(w => w.symbol), [watchlist]);
@@ -113,20 +115,43 @@ function AppInner() {
     <div className="flex-1 min-h-0 overflow-hidden md:hidden flex flex-col">
       {/* Chart view */}
       <div className={`flex-1 min-h-0 flex-col ${mobileView === 'chart' ? 'flex' : 'hidden'}`}>
-        <div className="flex flex-1 min-h-0 relative">
-          <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />
-          {chartArea}
-          {/* Quick-trade shortcut floating button */}
-          {simMode && (
-            <button
-              onClick={() => setMobileView('order')}
-              className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-2 bg-[#1f6feb] text-white text-xs font-semibold rounded-full shadow-lg active:bg-[#388bfd] transition-colors z-10"
-            >
-              <ShoppingCart size={13} />
-              Trade
-            </button>
-          )}
-        </div>
+        {multiChartMode ? (
+          <MultiChart timeframe={timeframe} onSelectSymbol={(sym, name) => { handleSymbolSelect(sym, name); setMultiChartMode(false); }} />
+        ) : (
+          <div className="flex flex-1 min-h-0 relative">
+            <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />
+            {chartArea}
+            {/* Floating buttons */}
+            <div className="absolute bottom-3 right-3 flex flex-col gap-2 z-10">
+              <button
+                onClick={() => setMultiChartMode(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#21262d] text-[#8b949e] text-xs font-semibold rounded-full shadow-lg active:bg-[#30363d] transition-colors border border-[#30363d]"
+              >
+                <LayoutGrid size={13} />
+                Grid
+              </button>
+              {simMode && (
+                <button
+                  onClick={() => setMobileView('order')}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[#1f6feb] text-white text-xs font-semibold rounded-full shadow-lg active:bg-[#388bfd] transition-colors"
+                >
+                  <ShoppingCart size={13} />
+                  Trade
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Back to single chart button when in grid mode */}
+        {multiChartMode && (
+          <button
+            onClick={() => setMultiChartMode(false)}
+            className="flex-shrink-0 flex items-center justify-center gap-1.5 py-2 bg-[#161b22] border-t border-[#21262d] text-[#8b949e] text-xs font-semibold active:text-white transition-colors"
+          >
+            <BarChart2 size={13} />
+            Back to single chart
+          </button>
+        )}
       </div>
 
       {/* Watchlist view */}
@@ -313,11 +338,17 @@ function AppInner() {
       {/* Center: chart + order panel */}
       <div className="flex flex-1 min-w-0 flex-col">
         <div className="flex flex-1 min-h-0">
-          <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />
-          {chartArea}
-          {showNews && !simMode && <NewsPanel symbol={symbol} />}
+          {!multiChartMode && <ChartToolbar activeTool={drawingTool} onToolChange={setDrawingTool} onClearDrawings={() => setClearDrawings(c => c + 1)} onUndoDrawing={() => setUndoDrawing(c => c + 1)} />}
+          {multiChartMode ? (
+            <MultiChart timeframe={timeframe} onSelectSymbol={(sym, name) => { handleSymbolSelect(sym, name); setMultiChartMode(false); }} />
+          ) : (
+            <>
+              {chartArea}
+              {showNews && !simMode && <NewsPanel symbol={symbol} />}
+            </>
+          )}
         </div>
-        {simMode && <OrderPanel symbol={symbol} currentPrice={currentPrice} />}
+        {simMode && !multiChartMode && <OrderPanel symbol={symbol} currentPrice={currentPrice} />}
       </div>
 
       {/* Right panel (sim mode) */}
@@ -421,6 +452,17 @@ function AppInner() {
           </span>
         )}
         <div className="flex-1" />
+        <button
+          onClick={() => setMultiChartMode(m => !m)}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition-all ${
+            multiChartMode
+              ? 'bg-[#1f6feb] text-white'
+              : 'bg-[#21262d] text-[#8b949e] hover:text-white hover:bg-[#30363d]'
+          }`}
+        >
+          <LayoutGrid size={12} />
+          {multiChartMode ? 'Grid ON' : 'Multi-Chart'}
+        </button>
         {dataSourceBadge}
       </div>
 
