@@ -93,7 +93,7 @@ function AppInner() {
           </div>
         </div>
       )}
-      <NexusChart bars={bars} timeframe={timeframe} chartType={chartType} indicators={indicators} drawingTool={drawingTool} clearDrawings={clearDrawings} undoDrawing={undoDrawing} liveTick={liveTick} />
+      <NexusChart bars={bars} chartType={chartType} indicators={indicators} drawingTool={drawingTool} clearDrawings={clearDrawings} undoDrawing={undoDrawing} liveTick={liveTick} />
     </div>
   );
 
