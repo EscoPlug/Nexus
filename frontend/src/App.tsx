@@ -24,8 +24,10 @@ import MultiChart from './components/Chart/MultiChart';
 import WeekView from './components/Chart/WeekView';
 
 const SOURCE_LABELS: Record<string, string> = {
-  yahoo: 'Yahoo', binance: 'Binance', coingecko: 'CoinGecko', forex: 'ECB',
-  stooq: 'Stooq', google: 'Google', investing: 'Investing', backend: 'Backend',
+  yahoo: 'Yahoo', binance: 'Binance', kraken: 'Kraken', cryptocompare: 'CC',
+  coingecko: 'CoinGecko', forex: 'ECB', exchangerate: 'XRate', stooq: 'Stooq',
+  google: 'Google', investing: 'Investing.com', alpha_vantage: 'AlphaVantage',
+  finnhub: 'Finnhub', polygon: 'Polygon', backend: 'Backend',
 };
 
 type RightTab = 'level2' | 'alerts' | 'risk' | 'broker';
