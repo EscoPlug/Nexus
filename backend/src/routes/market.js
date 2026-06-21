@@ -9,6 +9,11 @@ import { cryptoCompareCandles, cryptoCompareQuote } from '../services/cryptoComp
 import { avCandles, avQuote, isConfigured as avConfigured } from '../services/alphaVantage.js';
 import { finnhubCandles, finnhubQuote, isConfigured as fhConfigured } from '../services/finnhubData.js';
 import { polygonCandles, polygonQuote, isConfigured as pgConfigured } from '../services/polygonData.js';
+import {
+  getStockBars as alpacaStockBars, getCryptoBars as alpacaCryptoBars,
+  getStockQuote as alpacaStockQuote, getCryptoQuote as alpacaCryptoQuote,
+  isConfigured as alpacaConfigured,
+} from '../services/alpacaData.js';
 import { classifySymbol } from '../services/symbols.js';
 
 const router = Router();
@@ -32,6 +37,7 @@ function candleSteps(symbol, interval) {
   if (fhConfigured())  common.push({ source: 'finnhub', run: () => finnhubCandles(symbol, interval) });
 
   if (cls === 'crypto') return [
+    ...(alpacaConfigured() ? [{ source: 'alpaca', run: () => alpacaCryptoBars(symbol, interval) }] : []),
     { source: 'yahoo',          run: () => yahooCandles(symbol, interval) },
     { source: 'kraken',         run: () => krakenCandles(symbol, interval) },
     { source: 'cryptocompare',  run: () => cryptoCompareCandles(symbol, interval) },
@@ -40,6 +46,8 @@ function candleSteps(symbol, interval) {
   ];
 
   return [
+    // Alpaca (IEX) leads for US equities when keys are configured
+    ...(alpacaConfigured() && cls === 'stock' ? [{ source: 'alpaca', run: () => alpacaStockBars(symbol, interval) }] : []),
     { source: 'yahoo', run: () => yahooCandles(symbol, interval) },
     ...common,
     { source: 'stooq', run: () => stooqCandles(symbol, interval) },
@@ -54,6 +62,7 @@ function quoteSteps(symbol) {
   if (fhConfigured())  keyedProviders.push({ source: 'finnhub', run: () => finnhubQuote(symbol) });
 
   if (cls === 'crypto') return [
+    ...(alpacaConfigured() ? [{ source: 'alpaca', run: () => alpacaCryptoQuote(symbol) }] : []),
     { source: 'yahoo',          run: () => yahooQuote(symbol) },
     { source: 'kraken',         run: () => krakenQuote(symbol) },
     { source: 'cryptocompare',  run: () => cryptoCompareQuote(symbol) },
@@ -63,6 +72,7 @@ function quoteSteps(symbol) {
   ];
 
   return [
+    ...(alpacaConfigured() && cls === 'stock' ? [{ source: 'alpaca', run: () => alpacaStockQuote(symbol) }] : []),
     { source: 'yahoo',    run: () => yahooQuote(symbol) },
     { source: 'google',   run: () => googleQuote(symbol) },
     ...keyedProviders,
@@ -136,6 +146,7 @@ router.get('/datasources', async (_, res) => {
     { name: 'CryptoCompare',   category: 'crypto OHLC (250+ exchanges)', run: () => cryptoCompareQuote('BTC-USD') },
     { name: 'Google Finance',  category: 'stocks · forex (quote only)', run: () => googleQuote('AAPL') },
     { name: 'Investing.com',   category: 'experimental — often blocked', run: () => investingQuote('AAPL') },
+    ...(alpacaConfigured() ? [{ name: 'Alpaca (IEX)', category: 'US stocks · crypto (key set)', run: () => alpacaStockQuote('AAPL') }] : []),
     ...(avConfigured() ? [{ name: 'Alpha Vantage', category: 'stocks · forex · crypto (key set)', run: () => avQuote('AAPL') }] : []),
     ...(pgConfigured() ? [{ name: 'Polygon.io',    category: 'US stocks (key set)', run: () => polygonQuote('AAPL') }] : []),
     ...(fhConfigured() ? [{ name: 'Finnhub',       category: 'stocks · forex · crypto (key set)', run: () => finnhubQuote('AAPL') }] : []),

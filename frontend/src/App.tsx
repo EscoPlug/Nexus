@@ -27,7 +27,7 @@ const SOURCE_LABELS: Record<string, string> = {
   yahoo: 'Yahoo', binance: 'Binance', kraken: 'Kraken', cryptocompare: 'CC',
   coingecko: 'CoinGecko', forex: 'ECB', exchangerate: 'XRate', stooq: 'Stooq',
   google: 'Google', investing: 'Investing.com', alpha_vantage: 'AlphaVantage',
-  finnhub: 'Finnhub', polygon: 'Polygon', backend: 'Backend',
+  finnhub: 'Finnhub', polygon: 'Polygon', alpaca: 'Alpaca', backend: 'Backend',
 };
 
 type RightTab = 'level2' | 'alerts' | 'risk' | 'broker';
