@@ -1,134 +1,193 @@
 import type { OHLCVBar } from '../types';
 import { yahooCandles, yahooQuote, yahooSearch, yahooNews } from './yahoo';
 import { simCandles, simQuote, SIM_SEARCH_DB } from './simulation';
+import { classifySymbol } from './assetClass';
+import { binanceCandles, binanceQuote } from './providers/binance';
+import { coingeckoCandles, coingeckoQuote } from './providers/coingecko';
+import { forexCandles, forexQuote } from './providers/forex';
+import { stooqCandles, stooqQuote } from './providers/stooq';
 
-export type DataSource = 'backend' | 'yahoo' | 'simulated';
+export type DataSource =
+  | 'backend' | 'yahoo' | 'binance' | 'coingecko' | 'forex' | 'stooq'
+  | 'google' | 'investing' | 'simulated';
 
-let resolvedSource: DataSource | null = null;
+interface QuoteShape {
+  symbol: string; name: string; price: number; open: number; high: number;
+  low: number; prevClose: number; volume: number; change: number; changePercent: number;
+  marketCap?: number; exchange: string; currency: string;
+}
 
-async function detectSource(): Promise<DataSource> {
-  if (resolvedSource) return resolvedSource;
+let backendAvailable: boolean | null = null;
 
-  // 1. Try local backend (works on local dev)
+async function hasBackend(): Promise<boolean> {
+  if (backendAvailable !== null) return backendAvailable;
   try {
     const res = await fetch('/api/health', { signal: AbortSignal.timeout(1500) });
-    if (res.ok) { resolvedSource = 'backend'; return 'backend'; }
-  } catch {}
+    const data = await res.json().catch(() => null);
+    backendAvailable = res.ok && data?.service === 'Nexus Backend';
+  } catch {
+    backendAvailable = false;
+  }
+  return backendAvailable;
+}
 
-  // 2. Try Yahoo Finance directly from the browser
-  try {
-    const res = await fetch(
-      'https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d',
-      { signal: AbortSignal.timeout(4000) }
-    );
-    if (res.ok) { resolvedSource = 'yahoo'; return 'yahoo'; }
-  } catch {}
-
-  // 3. Try Yahoo Finance via CORS proxy
-  try {
-    const url = encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d');
-    const res = await fetch(`https://corsproxy.io/?url=${url}`, { signal: AbortSignal.timeout(6000) });
-    if (res.ok) { resolvedSource = 'yahoo'; return 'yahoo'; }
-  } catch {}
-
-  resolvedSource = 'simulated';
-  return 'simulated';
+// Run an ordered list of providers, returning the first non-empty result.
+async function race<T>(
+  steps: Array<{ source: DataSource; run: () => Promise<T> }>,
+  isEmpty: (v: T) => boolean
+): Promise<{ value: T; source: DataSource } | null> {
+  for (const step of steps) {
+    try {
+      const value = await step.run();
+      if (!isEmpty(value)) return { value, source: step.source };
+    } catch {
+      /* try next provider */
+    }
+  }
+  return null;
 }
 
 export async function getDataSource(): Promise<DataSource> {
-  return detectSource();
+  return (await hasBackend()) ? 'backend' : 'yahoo';
+}
+
+// ── Candles ───────────────────────────────────────────────────────────────
+
+function candleProviders(symbol: string, interval: string) {
+  const cls = classifySymbol(symbol);
+  const yahoo = { source: 'yahoo' as DataSource, run: () => yahooCandles(symbol, interval) };
+  const stooq = { source: 'stooq' as DataSource, run: () => stooqCandles(symbol, interval) };
+
+  if (cls === 'crypto') {
+    return [
+      { source: 'binance' as DataSource, run: () => binanceCandles(symbol, interval) },
+      { source: 'coingecko' as DataSource, run: () => coingeckoCandles(symbol, interval) },
+      yahoo, stooq,
+    ];
+  }
+  if (cls === 'forex') {
+    return [
+      yahoo,
+      { source: 'forex' as DataSource, run: () => forexCandles(symbol, interval) },
+      stooq,
+    ];
+  }
+  return [yahoo, stooq];
 }
 
 export async function fetchCandles(symbol: string, interval: string): Promise<{ bars: OHLCVBar[]; source: DataSource }> {
-  const source = await detectSource();
-
-  if (source === 'backend') {
+  if (await hasBackend()) {
     try {
       const res = await fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&interval=${interval}`);
       if (res.ok) {
         const data = await res.json();
-        return { bars: data.candles || [], source: 'backend' };
+        const bars: OHLCVBar[] = data.candles || [];
+        if (bars.length > 0) return { bars, source: (data.source as DataSource) || 'backend' };
       }
-    } catch {}
+    } catch {
+      /* fall back to direct providers */
+    }
   }
 
-  if (source === 'yahoo' || source === 'backend') {
-    try {
-      const bars = await yahooCandles(symbol, interval);
-      if (bars.length > 0) { resolvedSource = 'yahoo'; return { bars, source: 'yahoo' }; }
-    } catch {}
-  }
-
+  const result = await race(candleProviders(symbol, interval), (b: OHLCVBar[]) => b.length === 0);
+  if (result) return { bars: result.value, source: result.source };
   return { bars: simCandles(symbol, interval), source: 'simulated' };
 }
 
-export async function fetchQuote(symbol: string) {
-  const source = await detectSource();
+// ── Quote ─────────────────────────────────────────────────────────────────
 
-  if (source === 'backend') {
-    try {
-      const res = await fetch(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
-      if (res.ok) return await res.json();
-    } catch {}
+function quoteProviders(symbol: string) {
+  const cls = classifySymbol(symbol);
+  const yahoo = { source: 'yahoo' as DataSource, run: () => yahooQuote(symbol) };
+  const stooq = { source: 'stooq' as DataSource, run: () => stooqQuote(symbol) };
+
+  if (cls === 'crypto') {
+    return [
+      { source: 'binance' as DataSource, run: () => binanceQuote(symbol) },
+      { source: 'coingecko' as DataSource, run: () => coingeckoQuote(symbol) },
+      yahoo, stooq,
+    ];
   }
-
-  if (source === 'yahoo' || source === 'backend') {
-    try {
-      return await yahooQuote(symbol);
-    } catch {}
+  if (cls === 'forex') {
+    return [yahoo, { source: 'forex' as DataSource, run: () => forexQuote(symbol) }, stooq];
   }
-
-  return simQuote(symbol);
+  return [yahoo, stooq];
 }
 
-export async function fetchSearch(query: string) {
-  const source = await detectSource();
+async function fetchQuoteWithSource(symbol: string): Promise<{ quote: QuoteShape; source: DataSource }> {
+  if (await hasBackend()) {
+    try {
+      const res = await fetch(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.price) return { quote: data as QuoteShape, source: (data.source as DataSource) || 'backend' };
+      }
+    } catch {
+      /* fall back */
+    }
+  }
 
-  if (source === 'backend') {
+  const result = await race(quoteProviders(symbol), (q) => !q || !(q as QuoteShape).price);
+  if (result) return { quote: result.value as QuoteShape, source: result.source };
+  return { quote: simQuote(symbol) as QuoteShape, source: 'simulated' };
+}
+
+export async function fetchQuote(symbol: string) {
+  const { quote } = await fetchQuoteWithSource(symbol);
+  return quote;
+}
+
+// ── Search ──────────────────────────────────────────────────────────────────
+
+export async function fetchSearch(query: string) {
+  if (await hasBackend()) {
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       if (res.ok) {
         const data = await res.json();
-        return data.results || [];
+        if ((data.results || []).length > 0) return data.results;
       }
-    } catch {}
+    } catch {
+      /* fall back */
+    }
   }
 
-  if (source === 'yahoo' || source === 'backend') {
-    try {
-      const results = await yahooSearch(query);
-      if (results.length > 0) return results;
-    } catch {}
+  try {
+    const results = await yahooSearch(query);
+    if (results.length > 0) return results;
+  } catch {
+    /* fall back */
   }
 
   const q = query.toLowerCase();
-  return SIM_SEARCH_DB.filter(s =>
-    s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
+  return SIM_SEARCH_DB.filter(
+    (s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
   ).slice(0, 15);
 }
 
-export async function fetchNews(symbol?: string) {
-  const source = await detectSource();
+// ── News ──────────────────────────────────────────────────────────────────
 
-  if (source === 'backend') {
+export async function fetchNews(symbol?: string) {
+  if (await hasBackend()) {
     try {
       const url = symbol ? `/api/news?symbol=${encodeURIComponent(symbol)}` : '/api/news';
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        return data.news || [];
+        if ((data.news || []).length > 0) return data.news;
       }
-    } catch {}
+    } catch {
+      /* fall back */
+    }
   }
 
-  if (source === 'yahoo' || source === 'backend') {
-    try {
-      const news = await yahooNews(symbol);
-      if (news.length > 0) return news;
-    } catch {}
+  try {
+    const news = await yahooNews(symbol);
+    if (news.length > 0) return news;
+  } catch {
+    /* fall back */
   }
 
-  // Fallback static news
   const now = Math.floor(Date.now() / 1000);
   const headlines = [
     { title: 'Markets Rally as Fed Signals Rate Cut Ahead', publisher: 'Reuters' },
@@ -153,35 +212,44 @@ export async function fetchNews(symbol?: string) {
   }));
 }
 
+// ── Markets (ticker) ────────────────────────────────────────────────────────
+
 export async function fetchMarkets() {
   const symbols = ['^GSPC', '^DJI', '^IXIC', '^VIX', 'GC=F', 'CL=F', 'BTC-USD', 'ETH-USD', 'EUR=X', '^TNX'];
-  const source = await detectSource();
 
-  if (source === 'backend') {
+  if (await hasBackend()) {
     try {
       const res = await fetch('/api/markets');
       if (res.ok) {
         const data = await res.json();
-        return data.markets || [];
+        if ((data.markets || []).length > 0) return data.markets;
       }
-    } catch {}
+    } catch {
+      /* fall back */
+    }
   }
 
-  if (source === 'yahoo' || source === 'backend') {
-    try {
-      const results = await Promise.allSettled(symbols.map(s => yahooQuote(s)));
-      const markets = results
-        .map((r, i) => r.status === 'fulfilled' && r.value
-          ? { symbol: symbols[i], name: r.value.name, price: r.value.price, change: r.value.change, changePercent: r.value.changePercent }
-          : null
-        )
-        .filter(Boolean);
-      if (markets.length > 0) return markets;
-    } catch {}
-  }
+  // Route each symbol through its best provider chain (crypto→Binance, forex→Yahoo, …)
+  const results = await Promise.allSettled(symbols.map((s) => fetchQuoteWithSource(s)));
+  const markets = results
+    .map((r, i) =>
+      r.status === 'fulfilled' && r.value.quote?.price
+        ? {
+            symbol: symbols[i],
+            name: r.value.quote.name,
+            price: r.value.quote.price,
+            change: r.value.quote.change,
+            changePercent: r.value.quote.changePercent,
+          }
+        : null
+    )
+    .filter(Boolean);
+  if (markets.length > 0) return markets;
 
-  return symbols.map(sym => {
-    const q = simQuote(sym);
-    return q ? { symbol: sym, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent } : null;
-  }).filter(Boolean);
+  return symbols
+    .map((sym) => {
+      const q = simQuote(sym);
+      return q ? { symbol: sym, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent } : null;
+    })
+    .filter(Boolean);
 }

@@ -23,6 +23,11 @@ import { Activity, BarChart2, Star, Search, ShoppingCart, PieChart, LayoutGrid, 
 import MultiChart from './components/Chart/MultiChart';
 import WeekView from './components/Chart/WeekView';
 
+const SOURCE_LABELS: Record<string, string> = {
+  yahoo: 'Yahoo', binance: 'Binance', coingecko: 'CoinGecko', forex: 'ECB',
+  stooq: 'Stooq', google: 'Google', investing: 'Investing', backend: 'Backend',
+};
+
 type RightTab = 'level2' | 'alerts' | 'risk' | 'broker';
 type LeftTab = 'watchlist' | 'scanner';
 type MobileView = 'chart' | 'watchlist' | 'scanner' | 'order' | 'dashboard';
@@ -103,11 +108,11 @@ function AppInner() {
 
   const dataSourceBadge = (
     <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${
-      dataSource === 'yahoo' ? 'bg-[#3fb950]/20 text-[#3fb950]' :
+      dataSource === 'simulated' ? 'bg-[#d29922]/20 text-[#d29922]' :
       dataSource === 'backend' ? 'bg-[#1f6feb]/20 text-[#79c0ff]' :
-      'bg-[#d29922]/20 text-[#d29922]'
+      'bg-[#3fb950]/20 text-[#3fb950]'
     }`}>
-      {dataSource === 'yahoo' ? '● Live' : dataSource === 'backend' ? '● Backend' : '◌ Sim'}
+      {dataSource === 'simulated' ? '◌ Sim' : `● ${SOURCE_LABELS[dataSource] ?? 'Live'}`}
     </span>
   );
 
